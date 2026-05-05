@@ -118,7 +118,7 @@ client.on('interactionCreate', async interaction => {
                     `2. **Сума:** $${amount.toLocaleString('en-US')}\n\n` +
                     `3. **Примітка:** ${note}\n\n` +
                     `💰 **Баланс сейфу:** $${safeBalance.toLocaleString('en-US')}\n\n` +
-                    `👤 **Дію виконав:** ${interaction.user.username}`
+                    `👤 **Дію виконав:** ${interaction.member?.displayName || interaction.user.username}`
                 )
                 .setTimestamp();
 
