@@ -66,17 +66,20 @@ client.on('interactionCreate', async interaction => {
         const nickInput = new TextInputBuilder()
             .setCustomId('nick')
             .setLabel('Нік')
-            .setStyle(TextInputStyle.Short);
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
 
         const amountInput = new TextInputBuilder()
             .setCustomId('amount')
             .setLabel('Сума')
-            .setStyle(TextInputStyle.Short);
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
 
         const noteInput = new TextInputBuilder()
             .setCustomId('note')
             .setLabel('Примітка')
-            .setStyle(TextInputStyle.Paragraph);
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(false);
 
         modal.addComponents(
             new ActionRowBuilder().addComponents(nickInput),
@@ -90,10 +93,12 @@ client.on('interactionCreate', async interaction => {
     if (interaction.type === InteractionType.ModalSubmit) {
 
         const nick = interaction.fields.getTextInputValue('nick');
-        const amount = parseInt(
-            interaction.fields.getTextInputValue('amount')
-        );
-        const note = interaction.fields.getTextInputValue('note');
+        const amount = parseInt(interaction.fields.getTextInputValue('amount'));
+        const note = interaction.fields.getTextInputValue('note') || '—';
+
+        if (isNaN(amount)) {
+            return interaction.reply({ content: '❌ Сума має бути числом!', ephemeral: true });
+        }
 
         const isPlus = interaction.customId === 'total_plus';
 
@@ -116,7 +121,8 @@ client.on('interactionCreate', async interaction => {
                 `3. **Примітка:** ${note}\n\n` +
                 `💰 **Баланс сейфу:** $${safeBalance.toLocaleString()}\n\n` +
                 `👤 Дію виконав: ${interaction.user.username}`
-            );
+            )
+            .setTimestamp();
 
         await interaction.reply({
             embeds: [embed]
@@ -125,3 +131,12 @@ client.on('interactionCreate', async interaction => {
 });
 
 client.login(TOKEN);
+
+
+
+const http = require('http');
+
+http.createServer((req, res) => {
+    res.write('Bot is running');
+    res.end();
+}).listen(process.env.PORT || 3000);
