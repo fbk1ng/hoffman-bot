@@ -24,11 +24,13 @@ const MONGODB_URI = process.env.MONGODB_URI;
 const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID;
 
 const CLIENT_ID = '1501160094006771812';
+const GUILD_ID = '1495987963887227031';
 
 const APPLICATION_PUBLIC_CHANNEL_ID = '1495989924938383490';
 const APPLICATION_REVIEW_CHANNEL_ID = '1501498789188341851';
 
 const GUEST_ROLE_ID = '1496709652866666586';
+
 const REVIEW_ROLE_IDS = [
     '1495997440333971507',
     '1495997048669863966'
@@ -68,6 +70,7 @@ async function connectDB() {
     if (!MONGODB_URI) throw new Error('MONGODB_URI не доданий у Render');
 
     const mongo = new MongoClient(MONGODB_URI);
+
     await mongo.connect();
 
     const db = mongo.db('hoffman_bot');
@@ -137,7 +140,7 @@ async function sendReport(manual = false) {
     const channel = await client.channels.fetch(REPORT_CHANNEL_ID).catch(() => null);
 
     if (!channel) {
-        return { ok: false, message: '❌ Канал для звіту не знайдено. Перевір REPORT_CHANNEL_ID.' };
+        return { ok: false, message: '❌ Канал для звіту не знайдено.' };
     }
 
     const embed = new EmbedBuilder()
@@ -171,7 +174,9 @@ async function sendReport(manual = false) {
 }
 
 function hasReviewAccess(member) {
-    return REVIEW_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
+    return REVIEW_ROLE_IDS.some(roleId =>
+        member.roles.cache.has(roleId)
+    );
 }
 
 const commands = [
@@ -205,7 +210,7 @@ client.once(Events.ClientReady, async () => {
         await connectDB();
 
         await rest.put(
-            Routes.applicationCommands(CLIENT_ID),
+            Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
             { body: commands }
         );
 
@@ -217,7 +222,7 @@ client.once(Events.ClientReady, async () => {
             if (hour === 23 && minute === 59) {
                 await sendReport(false);
             }
-        }, 60 * 1000);
+        }, 60000);
 
     } catch (error) {
         console.error('Помилка запуску:', error);
@@ -226,9 +231,10 @@ client.once(Events.ClientReady, async () => {
 
 client.on('interactionCreate', async interaction => {
     try {
+
         if (interaction.isChatInputCommand()) {
+
             if (interaction.commandName === 'balance') {
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const balance = await getBalance();
 
@@ -242,11 +248,17 @@ client.on('interactionCreate', async interaction => {
                     .setFooter({ text: 'Hoffman Bank • Safe Balance' })
                     .setTimestamp();
 
-                return await interaction.editReply({ embeds: [embed] });
+                return await interaction.reply({
+                    embeds: [embed],
+                    flags: MessageFlags.Ephemeral
+                });
             }
 
             if (interaction.commandName === 'report') {
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                await interaction.deferReply({
+                    flags: MessageFlags.Ephemeral
+                });
 
                 const result = await sendReport(true);
 
@@ -256,59 +268,53 @@ client.on('interactionCreate', async interaction => {
             }
 
             if (interaction.commandName === 'apply') {
+
                 if (interaction.channelId !== APPLICATION_PUBLIC_CHANNEL_ID) {
                     return await interaction.reply({
-                        content: '❌ Подати заявку можна тільки у спеціальному каналі для заявок.',
+                        content: '❌ Подати заявку можна тільки у спеціальному каналі.',
                         flags: MessageFlags.Ephemeral
                     });
                 }
 
                 if (!interaction.member.roles.cache.has(GUEST_ROLE_ID)) {
                     return await interaction.reply({
-                        content: '❌ Подавати заявку можуть тільки користувачі з роллю **Гість**.',
+                        content: '❌ Подавати заявку можуть тільки користувачі з роллю Гість.',
                         flags: MessageFlags.Ephemeral
                     });
                 }
 
                 const modal = new ModalBuilder()
                     .setCustomId('hoffman_application')
-                    .setTitle('Заявка до сімʼї Hoffman');
+                    .setTitle('Заявка до Hoffman');
 
                 const nickInput = new TextInputBuilder()
                     .setCustomId('nick_static')
-                    .setLabel('Ваш Nick Name #static')
+                    .setLabel('Nick Name #static')
                     .setStyle(TextInputStyle.Short)
                     .setRequired(true);
 
                 const levelInput = new TextInputBuilder()
                     .setCustomId('game_level')
-                    .setLabel('Ваш ігровий рівень')
+                    .setLabel('Ігровий рівень')
                     .setStyle(TextInputStyle.Short)
                     .setRequired(true);
 
                 const ageInput = new TextInputBuilder()
                     .setCustomId('real_age')
-                    .setLabel('Ваш реальний вік')
+                    .setLabel('Реальний вік')
                     .setStyle(TextInputStyle.Short)
                     .setRequired(true);
 
                 const onlineInput = new TextInputBuilder()
                     .setCustomId('daily_online')
-                    .setLabel('Ваш добовий онлайн')
+                    .setLabel('Добовий онлайн')
                     .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('Наприклад: 4-6 годин')
                     .setRequired(true);
 
                 const extraInput = new TextInputBuilder()
                     .setCustomId('extra_info')
-                    .setLabel('Плюси/мінуси, біо, напрямок, скрін')
+                    .setLabel('Додаткова інформація')
                     .setStyle(TextInputStyle.Paragraph)
-                    .setPlaceholder(
-                        '3 позитивні / 3 негативні речі\n' +
-                        'Біографія персонажа\n' +
-                        'Напрямок: Фарм/Крайм/Держ\n' +
-                        'Посилання на скрін статистики'
-                    )
                     .setRequired(true);
 
                 modal.addComponents(
@@ -338,14 +344,12 @@ client.on('interactionCreate', async interaction => {
                 .setCustomId('amount')
                 .setLabel('Сума')
                 .setStyle(TextInputStyle.Short)
-                .setPlaceholder('Наприклад: 2000000')
                 .setRequired(true);
 
             const noteInput = new TextInputBuilder()
                 .setCustomId('note')
                 .setLabel('Примітка')
                 .setStyle(TextInputStyle.Paragraph)
-                .setPlaceholder('Наприклад: На розкрутку')
                 .setRequired(false);
 
             modal.addComponents(
@@ -358,11 +362,12 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isButton()) {
+
             if (!['application_approve', 'application_reject'].includes(interaction.customId)) return;
 
             if (!hasReviewAccess(interaction.member)) {
                 return await interaction.reply({
-                    content: '❌ У вас немає прав для розгляду заявок.',
+                    content: '❌ У вас немає доступу.',
                     flags: MessageFlags.Ephemeral
                 });
             }
@@ -370,16 +375,13 @@ client.on('interactionCreate', async interaction => {
             const approved = interaction.customId === 'application_approve';
 
             const oldEmbed = interaction.message.embeds[0];
+
             const newEmbed = EmbedBuilder.from(oldEmbed)
                 .setColor(approved ? 0x00ff88 : 0xff3333)
                 .addFields({
                     name: approved ? '✅ Статус заявки' : '❌ Статус заявки',
-                    value:
-                        `${approved ? 'СХВАЛЕНО' : 'ВІДХИЛЕНО'}\n` +
-                        `Розглянув: ${interaction.member.displayName}`
-                })
-                .setFooter({ text: approved ? 'Hoffman Family • Application Approved' : 'Hoffman Family • Application Rejected' })
-                .setTimestamp();
+                    value: `${approved ? 'СХВАЛЕНО' : 'ВІДХИЛЕНО'}\nРозглянув: ${interaction.member.displayName}`
+                });
 
             const disabledButtons = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
@@ -387,6 +389,7 @@ client.on('interactionCreate', async interaction => {
                     .setLabel('Схвалено')
                     .setStyle(ButtonStyle.Success)
                     .setDisabled(true),
+
                 new ButtonBuilder()
                     .setCustomId('application_reject')
                     .setLabel('Відхилено')
@@ -394,23 +397,19 @@ client.on('interactionCreate', async interaction => {
                     .setDisabled(true)
             );
 
-            await interaction.update({
+            return await interaction.update({
                 embeds: [newEmbed],
                 components: [disabledButtons]
             });
-
-            return;
         }
 
         if (interaction.type === InteractionType.ModalSubmit) {
-            if (interaction.customId === 'hoffman_application') {
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-                if (!interaction.member.roles.cache.has(GUEST_ROLE_ID)) {
-                    return await interaction.editReply({
-                        content: '❌ Подавати заявку можуть тільки користувачі з роллю **Гість**.'
-                    });
-                }
+            if (interaction.customId === 'hoffman_application') {
+
+                await interaction.deferReply({
+                    flags: MessageFlags.Ephemeral
+                });
 
                 const nickStatic = interaction.fields.getTextInputValue('nick_static');
                 const gameLevel = interaction.fields.getTextInputValue('game_level');
@@ -418,26 +417,18 @@ client.on('interactionCreate', async interaction => {
                 const dailyOnline = interaction.fields.getTextInputValue('daily_online');
                 const extraInfo = interaction.fields.getTextInputValue('extra_info');
 
-                const reviewChannel = await client.channels.fetch(APPLICATION_REVIEW_CHANNEL_ID).catch(() => null);
-
-                if (!reviewChannel) {
-                    return await interaction.editReply({
-                        content: '❌ Канал для погодження заявок не знайдено.'
-                    });
-                }
+                const reviewChannel = await client.channels.fetch(APPLICATION_REVIEW_CHANNEL_ID);
 
                 const embed = new EmbedBuilder()
                     .setColor(0xd4af37)
-                    .setTitle('📥 Нова заявка до сімʼї Hoffman')
+                    .setTitle('📥 Нова заявка до Hoffman')
                     .setDescription(
-                        `👤 **Користувач Discord:** <@${interaction.user.id}>\n\n` +
-                        `📝 **Nick Name #static:**\n${nickStatic}\n\n` +
-                        `🎮 **Ігровий рівень:**\n${gameLevel}\n\n` +
-                        `🎂 **Реальний вік:**\n${realAge}\n\n` +
-                        `⏰ **Добовий онлайн:**\n${dailyOnline}\n\n` +
-                        `📌 **Додаткова інформація:**\n${extraInfo}\n\n` +
-                        `━━━━━━━━━━━━━━━━━━━━\n` +
-                        `⏳ **Термін розгляду:** до 4 годин`
+                        `👤 **Discord:** <@${interaction.user.id}>\n\n` +
+                        `📝 **Nick:** ${nickStatic}\n\n` +
+                        `🎮 **Рівень:** ${gameLevel}\n\n` +
+                        `🎂 **Вік:** ${realAge}\n\n` +
+                        `⏰ **Онлайн:** ${dailyOnline}\n\n` +
+                        `📌 **Інформація:**\n${extraInfo}`
                     )
                     .setFooter({ text: 'Hoffman Family • Application System' })
                     .setTimestamp();
@@ -446,13 +437,12 @@ client.on('interactionCreate', async interaction => {
                     new ButtonBuilder()
                         .setCustomId('application_approve')
                         .setLabel('Схвалити')
-                        .setStyle(ButtonStyle.Success)
-                        .setEmoji('✅'),
+                        .setStyle(ButtonStyle.Success),
+
                     new ButtonBuilder()
                         .setCustomId('application_reject')
                         .setLabel('Відхилити')
                         .setStyle(ButtonStyle.Danger)
-                        .setEmoji('❌')
                 );
 
                 await reviewChannel.send({
@@ -462,7 +452,7 @@ client.on('interactionCreate', async interaction => {
                 });
 
                 return await interaction.editReply({
-                    content: '✅ Ваша заявка успішно подана. Термін розгляду — до 4 годин.'
+                    content: '✅ Заявка успішно подана.'
                 });
             }
 
@@ -476,30 +466,43 @@ client.on('interactionCreate', async interaction => {
 
             if (!amount || isNaN(amount)) {
                 return await interaction.editReply({
-                    content: '❌ Сума має бути числом!'
+                    content: '❌ Сума має бути числом.'
                 });
             }
 
             const isPlus = interaction.customId === 'modal_plus';
-            const changeAmount = isPlus ? amount : -amount;
 
-            const newBalance = await changeBalance(changeAmount);
-            await addDailyStat(isPlus ? 'plus' : 'minus', amount);
+            const newBalance = await changeBalance(
+                isPlus ? amount : -amount
+            );
+
+            await addDailyStat(
+                isPlus ? 'plus' : 'minus',
+                amount
+            );
 
             const member = interaction.member;
-            const displayName = member?.displayName || interaction.user.username;
 
-            const role = member.roles.cache
-                .filter(r => r.name !== '@everyone')
-                .sort((a, b) => b.position - a.position)
-                .first()?.name || 'Без ролі';
+            const displayName =
+                member?.displayName ||
+                interaction.user.username;
+
+            const role =
+                member.roles.cache
+                    .filter(r => r.name !== '@everyone')
+                    .sort((a, b) => b.position - a.position)
+                    .first()?.name || 'Без ролі';
 
             const embed = new EmbedBuilder()
                 .setColor(isPlus ? 0x00ff88 : 0xff3333)
-                .setTitle(isPlus ? '🟢 Hoffman Bank — Поповнення сейфу' : '🔴 Hoffman Bank — Зняття коштів')
+                .setTitle(
+                    isPlus
+                        ? '🟢 Hoffman Bank — Поповнення сейфу'
+                        : '🔴 Hoffman Bank — Зняття коштів'
+                )
                 .setDescription(
                     `╔════════════════════╗\n` +
-                    `        **${isPlus ? 'ПОПОВНЕННЯ' : 'ЗНЯТТЯ КОШТІВ'}**\n` +
+                    `     **${isPlus ? 'ПОПОВНЕННЯ' : 'ЗНЯТТЯ КОШТІВ'}**\n` +
                     `╚════════════════════╝\n\n` +
                     `👤 **Нік:** ${nick}\n\n` +
                     `💵 **Сума:** \`$${amount.toLocaleString('en-US')}\`\n\n` +
@@ -510,22 +513,31 @@ client.on('interactionCreate', async interaction => {
                     `✅ **Дію виконав:** ${displayName}\n` +
                     `🎭 **Роль:** ${role}`
                 )
-                .setFooter({ text: 'Hoffman Bank • Transaction System' })
+                .setFooter({
+                    text: 'Hoffman Bank • Transaction System'
+                })
                 .setTimestamp();
 
-            return await interaction.editReply({ embeds: [embed] });
+            return await interaction.editReply({
+                embeds: [embed]
+            });
         }
+
     } catch (error) {
+
         console.error('Помилка interactionCreate:', error);
 
         if (!interaction.replied && !interaction.deferred) {
+
             await interaction.reply({
-                content: '❌ Сталась помилка при виконанні команди.',
+                content: '❌ Сталась помилка.',
                 flags: MessageFlags.Ephemeral
             }).catch(() => {});
+
         } else {
+
             await interaction.editReply({
-                content: '❌ Сталась помилка при виконанні команди.'
+                content: '❌ Сталась помилка.'
             }).catch(() => {});
         }
     }
@@ -534,8 +546,12 @@ client.on('interactionCreate', async interaction => {
 client.login(TOKEN);
 
 http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.writeHead(200, {
+        'Content-Type': 'text/plain'
+    });
+
     res.end('Bot is running');
+
 }).listen(process.env.PORT || 3000, () => {
     console.log('Web server запущений для Render');
 });
