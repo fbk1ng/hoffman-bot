@@ -30,6 +30,7 @@ const APPLICATION_PUBLIC_CHANNEL_ID = '1495989924938383490';
 const APPLICATION_REVIEW_CHANNEL_ID = '1501498789188341851';
 
 const GUEST_ROLE_ID = '1496709652866666586';
+const ACCEPTED_ROLE_ID = '1495998331216723968';
 
 const REVIEW_ROLE_IDS = [
     '1495997440333971507',
@@ -42,6 +43,7 @@ const client = new Client({
 
 let balances;
 let dailyStats;
+let botSettings;
 
 function getKyivDate() {
     return new Intl.DateTimeFormat('en-CA', {
@@ -70,13 +72,13 @@ async function connectDB() {
     if (!MONGODB_URI) throw new Error('MONGODB_URI не доданий у Render');
 
     const mongo = new MongoClient(MONGODB_URI);
-
     await mongo.connect();
 
     const db = mongo.db('hoffman_bot');
 
     balances = db.collection('balances');
     dailyStats = db.collection('daily_stats');
+    botSettings = db.collection('bot_settings');
 
     await balances.updateOne(
         { name: 'safe' },
@@ -174,9 +176,157 @@ async function sendReport(manual = false) {
 }
 
 function hasReviewAccess(member) {
-    return REVIEW_ROLE_IDS.some(roleId =>
-        member.roles.cache.has(roleId)
+    return REVIEW_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
+}
+
+function createApplicationPanelEmbed() {
+    return new EmbedBuilder()
+        .setColor(0xd4af37)
+        .setTitle('🏛 FAMILY HOFFMAN — Система заявок')
+        .setDescription(
+            `📌 **Для подачі заявки до сімʼї Hoffman натисніть кнопку нижче:**\n\n` +
+            `📨 **Подати заявку**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `📋 **Хто може подати заявку:**\n` +
+            `• тільки користувачі з роллю **Гість**\n\n` +
+            `📨 **Після подачі заявки:**\n` +
+            `• анкета автоматично потрапить на розгляд керівництва\n` +
+            `• заявки розглядаються 9 та 10 рангом\n` +
+            `• у разі схвалення з вами звʼяжуться в приватні повідомлення\n` +
+            `• у разі відмови заявка буде відхилена\n\n` +
+            `⚠️ **Важливо:**\n` +
+            `• заповнюйте форму повністю та адекватно\n` +
+            `• заявки не по формі можуть бути відхилені\n` +
+            `• повторний спам заявками може призвести до відмови\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `💼 **Hoffman Family Recruitment System**`
+        )
+        .setFooter({ text: 'Hoffman Family • Application Panel' })
+        .setTimestamp();
+}
+
+function createApplicationPanelButton() {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('open_application_modal')
+            .setLabel('Подати заявку')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('📨')
     );
+}
+
+async function ensureApplicationPanel() {
+    const channel = await client.channels.fetch(APPLICATION_PUBLIC_CHANNEL_ID).catch(() => null);
+
+    if (!channel) {
+        console.log('Канал для панелі заявок не знайдено.');
+        return;
+    }
+
+    const settings = await botSettings.findOne({ name: 'application_panel' });
+    const embed = createApplicationPanelEmbed();
+    const button = createApplicationPanelButton();
+
+    if (settings?.messageId) {
+        const oldMessage = await channel.messages.fetch(settings.messageId).catch(() => null);
+
+        if (oldMessage) {
+            await oldMessage.edit({
+                embeds: [embed],
+                components: [button]
+            });
+
+            console.log('Панель заявок оновлено.');
+            return;
+        }
+    }
+
+    const message = await channel.send({
+        embeds: [embed],
+        components: [button]
+    });
+
+    await botSettings.updateOne(
+        { name: 'application_panel' },
+        { $set: { name: 'application_panel', messageId: message.id } },
+        { upsert: true }
+    );
+
+    console.log('Панель заявок створено.');
+}
+
+async function openApplicationModal(interaction) {
+    if (interaction.channelId !== APPLICATION_PUBLIC_CHANNEL_ID) {
+        return await interaction.reply({
+            content: '❌ Подати заявку можна тільки у спеціальному каналі.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    if (!interaction.member.roles.cache.has(GUEST_ROLE_ID)) {
+        return await interaction.reply({
+            content: '❌ Подавати заявку можуть тільки користувачі з роллю **Гість**.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const modal = new ModalBuilder()
+        .setCustomId('hoffman_application')
+        .setTitle('Заявка до Hoffman');
+
+    const nickInput = new TextInputBuilder()
+        .setCustomId('nick_static')
+        .setLabel('Nick Name #static')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const levelInput = new TextInputBuilder()
+        .setCustomId('game_level')
+        .setLabel('Ігровий рівень')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const ageInput = new TextInputBuilder()
+        .setCustomId('real_age')
+        .setLabel('Реальний вік')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const onlineInput = new TextInputBuilder()
+        .setCustomId('daily_online')
+        .setLabel('Добовий онлайн')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const extraInput = new TextInputBuilder()
+        .setCustomId('extra_info')
+        .setLabel('Додаткова інформація')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder(
+            '3 позитивні / 3 негативні речі\n' +
+            'Біографія персонажа\n' +
+            'Напрямок: Фарм/Крайм/Держ\n' +
+            'Посилання на скрін статистики'
+        )
+        .setRequired(true);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(nickInput),
+        new ActionRowBuilder().addComponents(levelInput),
+        new ActionRowBuilder().addComponents(ageInput),
+        new ActionRowBuilder().addComponents(onlineInput),
+        new ActionRowBuilder().addComponents(extraInput)
+    );
+
+    return await interaction.showModal(modal);
+}
+
+async function sendApplicationDM(user, approved) {
+    const text = approved
+        ? `🏛 Вітаємо, ваша заявка до сімʼї Hoffman була схвалена!\n\n📌 Найближчим часом з вами звʼяжеться один із заступників сімʼї для подальшої співбесіди та введення в курс справ.\n\nПросимо залишатись на звʼязку та перевіряти приватні повідомлення.\n\nЛаскаво просимо до Hoffman Family. 🔥`
+        : `🏛 Ваша заявка до сімʼї Hoffman була відхилена.\n\nПричини можуть бути різними:\n• недостатня активність\n• невідповідність вимогам\n• некоректне заповнення анкети\n• або інші внутрішні фактори\n\nВи можете подати повторну заявку пізніше.\n\nБажаємо успіхів та гарної гри. 🤝`;
+
+    await user.send(text).catch(() => null);
 }
 
 const commands = [
@@ -216,6 +366,8 @@ client.once(Events.ClientReady, async () => {
 
         console.log('Команди зареєстровано.');
 
+        await ensureApplicationPanel();
+
         setInterval(async () => {
             const { hour, minute } = getKyivTime();
 
@@ -231,11 +383,8 @@ client.once(Events.ClientReady, async () => {
 
 client.on('interactionCreate', async interaction => {
     try {
-
         if (interaction.isChatInputCommand()) {
-
             if (interaction.commandName === 'balance') {
-
                 const balance = await getBalance();
 
                 const embed = new EmbedBuilder()
@@ -255,7 +404,6 @@ client.on('interactionCreate', async interaction => {
             }
 
             if (interaction.commandName === 'report') {
-
                 await interaction.deferReply({
                     flags: MessageFlags.Ephemeral
                 });
@@ -268,64 +416,7 @@ client.on('interactionCreate', async interaction => {
             }
 
             if (interaction.commandName === 'apply') {
-
-                if (interaction.channelId !== APPLICATION_PUBLIC_CHANNEL_ID) {
-                    return await interaction.reply({
-                        content: '❌ Подати заявку можна тільки у спеціальному каналі.',
-                        flags: MessageFlags.Ephemeral
-                    });
-                }
-
-                if (!interaction.member.roles.cache.has(GUEST_ROLE_ID)) {
-                    return await interaction.reply({
-                        content: '❌ Подавати заявку можуть тільки користувачі з роллю Гість.',
-                        flags: MessageFlags.Ephemeral
-                    });
-                }
-
-                const modal = new ModalBuilder()
-                    .setCustomId('hoffman_application')
-                    .setTitle('Заявка до Hoffman');
-
-                const nickInput = new TextInputBuilder()
-                    .setCustomId('nick_static')
-                    .setLabel('Nick Name #static')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true);
-
-                const levelInput = new TextInputBuilder()
-                    .setCustomId('game_level')
-                    .setLabel('Ігровий рівень')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true);
-
-                const ageInput = new TextInputBuilder()
-                    .setCustomId('real_age')
-                    .setLabel('Реальний вік')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true);
-
-                const onlineInput = new TextInputBuilder()
-                    .setCustomId('daily_online')
-                    .setLabel('Добовий онлайн')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true);
-
-                const extraInput = new TextInputBuilder()
-                    .setCustomId('extra_info')
-                    .setLabel('Додаткова інформація')
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setRequired(true);
-
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(nickInput),
-                    new ActionRowBuilder().addComponents(levelInput),
-                    new ActionRowBuilder().addComponents(ageInput),
-                    new ActionRowBuilder().addComponents(onlineInput),
-                    new ActionRowBuilder().addComponents(extraInput)
-                );
-
-                return await interaction.showModal(modal);
+                return await openApplicationModal(interaction);
             }
 
             const isPlus = interaction.commandName === 'total_plus';
@@ -362,6 +453,9 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isButton()) {
+            if (interaction.customId === 'open_application_modal') {
+                return await openApplicationModal(interaction);
+            }
 
             if (!['application_approve', 'application_reject'].includes(interaction.customId)) return;
 
@@ -373,15 +467,39 @@ client.on('interactionCreate', async interaction => {
             }
 
             const approved = interaction.customId === 'application_approve';
-
             const oldEmbed = interaction.message.embeds[0];
+
+            const userMention = oldEmbed.description?.match(/<@(\d+)>/);
+            const applicantId = userMention ? userMention[1] : null;
+
+            if (approved && applicantId) {
+                const guildMember = await interaction.guild.members.fetch(applicantId).catch(() => null);
+
+                if (guildMember) {
+                    await guildMember.roles.add(ACCEPTED_ROLE_ID).catch(() => null);
+                    await guildMember.roles.remove(GUEST_ROLE_ID).catch(() => null);
+                }
+            }
+
+            if (applicantId) {
+                const applicantUser = await client.users.fetch(applicantId).catch(() => null);
+                if (applicantUser) {
+                    await sendApplicationDM(applicantUser, approved);
+                }
+            }
 
             const newEmbed = EmbedBuilder.from(oldEmbed)
                 .setColor(approved ? 0x00ff88 : 0xff3333)
                 .addFields({
                     name: approved ? '✅ Статус заявки' : '❌ Статус заявки',
                     value: `${approved ? 'СХВАЛЕНО' : 'ВІДХИЛЕНО'}\nРозглянув: ${interaction.member.displayName}`
-                });
+                })
+                .setFooter({
+                    text: approved
+                        ? 'Hoffman Family • Application Approved'
+                        : 'Hoffman Family • Application Rejected'
+                })
+                .setTimestamp();
 
             const disabledButtons = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
@@ -404,9 +522,7 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.type === InteractionType.ModalSubmit) {
-
             if (interaction.customId === 'hoffman_application') {
-
                 await interaction.deferReply({
                     flags: MessageFlags.Ephemeral
                 });
@@ -428,7 +544,9 @@ client.on('interactionCreate', async interaction => {
                         `🎮 **Рівень:** ${gameLevel}\n\n` +
                         `🎂 **Вік:** ${realAge}\n\n` +
                         `⏰ **Онлайн:** ${dailyOnline}\n\n` +
-                        `📌 **Інформація:**\n${extraInfo}`
+                        `📌 **Інформація:**\n${extraInfo}\n\n` +
+                        `━━━━━━━━━━━━━━━━━━━━\n` +
+                        `⏳ **Термін розгляду:** до 4 годин`
                     )
                     .setFooter({ text: 'Hoffman Family • Application System' })
                     .setTimestamp();
@@ -437,12 +555,14 @@ client.on('interactionCreate', async interaction => {
                     new ButtonBuilder()
                         .setCustomId('application_approve')
                         .setLabel('Схвалити')
-                        .setStyle(ButtonStyle.Success),
+                        .setStyle(ButtonStyle.Success)
+                        .setEmoji('✅'),
 
                     new ButtonBuilder()
                         .setCustomId('application_reject')
                         .setLabel('Відхилити')
                         .setStyle(ButtonStyle.Danger)
+                        .setEmoji('❌')
                 );
 
                 await reviewChannel.send({
@@ -452,7 +572,7 @@ client.on('interactionCreate', async interaction => {
                 });
 
                 return await interaction.editReply({
-                    content: '✅ Заявка успішно подана.'
+                    content: '✅ Заявка успішно подана. Термін розгляду — до 4 годин.'
                 });
             }
 
@@ -471,21 +591,12 @@ client.on('interactionCreate', async interaction => {
             }
 
             const isPlus = interaction.customId === 'modal_plus';
+            const newBalance = await changeBalance(isPlus ? amount : -amount);
 
-            const newBalance = await changeBalance(
-                isPlus ? amount : -amount
-            );
-
-            await addDailyStat(
-                isPlus ? 'plus' : 'minus',
-                amount
-            );
+            await addDailyStat(isPlus ? 'plus' : 'minus', amount);
 
             const member = interaction.member;
-
-            const displayName =
-                member?.displayName ||
-                interaction.user.username;
+            const displayName = member?.displayName || interaction.user.username;
 
             const role =
                 member.roles.cache
@@ -522,20 +633,15 @@ client.on('interactionCreate', async interaction => {
                 embeds: [embed]
             });
         }
-
     } catch (error) {
-
         console.error('Помилка interactionCreate:', error);
 
         if (!interaction.replied && !interaction.deferred) {
-
             await interaction.reply({
                 content: '❌ Сталась помилка.',
                 flags: MessageFlags.Ephemeral
             }).catch(() => {});
-
         } else {
-
             await interaction.editReply({
                 content: '❌ Сталась помилка.'
             }).catch(() => {});
