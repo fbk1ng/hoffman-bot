@@ -302,12 +302,7 @@ async function openApplicationModal(interaction) {
         .setCustomId('extra_info')
         .setLabel('Додаткова інформація')
         .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder(
-            '3 позитивні / 3 негативні речі\n' +
-            'Біографія персонажа\n' +
-            'Напрямок: Фарм/Крайм/Держ\n' +
-            'Посилання на скрін статистики'
-        )
+        .setPlaceholder('Плюси/мінуси, біо, напрямок, скрін')
         .setRequired(true);
 
     modal.addComponents(
