@@ -22,6 +22,7 @@ const http = require('http');
 const TOKEN = process.env.TOKEN;
 const MONGODB_URI = process.env.MONGODB_URI;
 const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID;
+const QUEST_CHANNEL_ID = process.env.QUEST_CHANNEL_ID;
 
 const CLIENT_ID = '1501160094006771812';
 const GUILD_ID = '1495987963887227031';
@@ -37,6 +38,27 @@ const REVIEW_ROLE_IDS = [
     '1495997048669863966'
 ];
 
+const DEFAULT_QUESTS = [
+    {
+        key: 'tovarnyi_vybukh',
+        name: 'Товарний вибух',
+        reward: 1000000,
+        cooldownHours: 24
+    },
+    {
+        key: 'dopomoha_hromadianam',
+        name: 'Допомога громадянам',
+        reward: 1000000,
+        cooldownHours: 24
+    },
+    {
+        key: 'myslyvskyi_sezon',
+        name: 'Мисливський сезон',
+        reward: 500000,
+        cooldownHours: 24
+    }
+];
+
 const client = new Client({
     intents: [GatewayIntentBits.Guilds]
 });
@@ -44,6 +66,8 @@ const client = new Client({
 let balances;
 let dailyStats;
 let botSettings;
+let questDefinitions;
+let questStates;
 
 function getKyivDate() {
     return new Intl.DateTimeFormat('en-CA', {
@@ -52,6 +76,17 @@ function getKyivDate() {
         month: '2-digit',
         day: '2-digit'
     }).format(new Date());
+}
+
+function getKyivDateTime(timestamp) {
+    return new Intl.DateTimeFormat('uk-UA', {
+        timeZone: 'Europe/Kyiv',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    }).format(new Date(timestamp));
 }
 
 function getKyivTime() {
@@ -68,6 +103,34 @@ function getKyivTime() {
     };
 }
 
+function formatMoney(amount) {
+    return `$${Number(amount).toLocaleString('en-US')}`;
+}
+
+function formatDuration(ms) {
+    if (ms <= 0) return '00:00:00';
+
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function makeQuestKey(name) {
+    return name
+        .toLowerCase()
+        .trim()
+        .replace(/[^\p{L}\p{N}]+/gu, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 40);
+}
+
+function hasReviewAccess(member) {
+    return REVIEW_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
+}
+
 async function connectDB() {
     if (!MONGODB_URI) throw new Error('MONGODB_URI не доданий у Render');
 
@@ -79,12 +142,39 @@ async function connectDB() {
     balances = db.collection('balances');
     dailyStats = db.collection('daily_stats');
     botSettings = db.collection('bot_settings');
+    questDefinitions = db.collection('quest_definitions');
+    questStates = db.collection('quest_states');
 
     await balances.updateOne(
         { name: 'safe' },
         { $setOnInsert: { name: 'safe', balance: 0 } },
         { upsert: true }
     );
+
+    for (const quest of DEFAULT_QUESTS) {
+        await questDefinitions.updateOne(
+            { key: quest.key },
+            { $setOnInsert: quest },
+            { upsert: true }
+        );
+
+        await questStates.updateOne(
+            { key: quest.key },
+            {
+                $setOnInsert: {
+                    key: quest.key,
+                    status: 'available',
+                    cooldownUntil: null,
+                    activeUserId: null,
+                    activeUserName: null,
+                    messageId: null,
+                    reminder2hSent: false,
+                    availableSent: false
+                }
+            },
+            { upsert: true }
+        );
+    }
 
     console.log('MongoDB підключено.');
 }
@@ -153,12 +243,12 @@ async function sendReport(manual = false) {
             `        **ФІНАНСОВИЙ ЗВІТ**\n` +
             `╚════════════════════╝\n\n` +
             `📈 **Поповнення за день:**\n` +
-            `\`+$${plus.toLocaleString('en-US')}\`\n\n` +
+            `\`${formatMoney(plus)}\`\n\n` +
             `📉 **Зняття за день:**\n` +
-            `\`-$${minus.toLocaleString('en-US')}\`\n\n` +
+            `\`-${formatMoney(minus)}\`\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n\n` +
             `💰 **Поточний баланс сейфу:**\n` +
-            `\`$${balance.toLocaleString('en-US')}\`\n\n` +
+            `\`${formatMoney(balance)}\`\n\n` +
             `🗓 **Дата:** ${date}`
         )
         .setFooter({ text: 'Hoffman Bank • Daily Report' })
@@ -173,10 +263,6 @@ async function sendReport(manual = false) {
     );
 
     return { ok: true, message: '✅ Звіт відправлено.' };
-}
-
-function hasReviewAccess(member) {
-    return REVIEW_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
 }
 
 function createApplicationPanelEmbed() {
@@ -324,6 +410,387 @@ async function sendApplicationDM(user, approved) {
     await user.send(text).catch(() => null);
 }
 
+async function getQuestChannel() {
+    if (!QUEST_CHANNEL_ID) return null;
+    return await client.channels.fetch(QUEST_CHANNEL_ID).catch(() => null);
+}
+
+function createQuestRunningEmbed(quest, userId, userName, note) {
+    return new EmbedBuilder()
+        .setColor(0xd4af37)
+        .setTitle('🧩 Hoffman Quest System')
+        .setDescription(
+            `📌 **Квест:** ${quest.name}\n\n` +
+            `👤 **Почав виконання:** <@${userId}>\n` +
+            `📝 **Імʼя:** ${userName}\n\n` +
+            `💰 **Нагорода:** \`${formatMoney(quest.reward)}\`\n` +
+            `🔄 **Статус:** Виконується\n\n` +
+            `🗒 **Примітка:** ${note || '—'}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `✅ Натисніть **Завершити квест**, якщо завдання виконано.\n` +
+            `❌ Натисніть **Скасувати квест**, якщо завдання не виконано.`
+        )
+        .setFooter({ text: 'Hoffman Family • Quest Started' })
+        .setTimestamp();
+}
+
+function createQuestButtons(key, userId) {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`quest_finish:${key}:${userId}`)
+            .setLabel('Завершити квест')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('✅'),
+
+        new ButtonBuilder()
+            .setCustomId(`quest_cancel:${key}:${userId}`)
+            .setLabel('Скасувати квест')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('❌')
+    );
+}
+
+function createDisabledQuestButtons() {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('quest_finished_disabled')
+            .setLabel('Завершено')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(true),
+
+        new ButtonBuilder()
+            .setCustomId('quest_cancelled_disabled')
+            .setLabel('Скасовано')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(true)
+    );
+}
+
+async function startQuest(interaction) {
+    if (!QUEST_CHANNEL_ID) {
+        return await interaction.reply({
+            content: '❌ QUEST_CHANNEL_ID не доданий у Render.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    if (interaction.channelId !== QUEST_CHANNEL_ID) {
+        return await interaction.reply({
+            content: '❌ Запускати квести можна тільки в каналі квестів.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const questKey = interaction.options.getString('quest');
+    const note = interaction.options.getString('note') || '—';
+
+    const quest = await questDefinitions.findOne({ key: questKey });
+
+    if (!quest) {
+        return await interaction.reply({
+            content: '❌ Такий квест не знайдено.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const state = await questStates.findOne({ key: quest.key });
+    const now = Date.now();
+
+    if (state?.status === 'running') {
+        return await interaction.reply({
+            content: `❌ Квест **${quest.name}** вже виконує <@${state.activeUserId}>.`,
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    if (state?.status === 'cooldown' && state.cooldownUntil > now) {
+        return await interaction.reply({
+            content:
+                `🔒 Квест **${quest.name}** зараз на відкаті.\n` +
+                `⏳ Залишилось: **${formatDuration(state.cooldownUntil - now)}**\n` +
+                `✅ Доступний: **${getKyivDateTime(state.cooldownUntil)}**`,
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const channel = await getQuestChannel();
+
+    if (!channel) {
+        return await interaction.reply({
+            content: '❌ Канал квестів не знайдено. Перевір QUEST_CHANNEL_ID.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const userName = interaction.member?.displayName || interaction.user.username;
+
+    const message = await channel.send({
+        embeds: [createQuestRunningEmbed(quest, interaction.user.id, userName, note)],
+        components: [createQuestButtons(quest.key, interaction.user.id)]
+    });
+
+    await questStates.updateOne(
+        { key: quest.key },
+        {
+            $set: {
+                key: quest.key,
+                status: 'running',
+                activeUserId: interaction.user.id,
+                activeUserName: userName,
+                messageId: message.id,
+                cooldownUntil: null,
+                reminder2hSent: false,
+                availableSent: false,
+                startedAt: now
+            }
+        },
+        { upsert: true }
+    );
+
+    return await interaction.reply({
+        content: `✅ Квест **${quest.name}** запущено.`,
+        flags: MessageFlags.Ephemeral
+    });
+}
+
+async function completeOrCancelQuest(interaction, completed) {
+    const [_, key, starterId] = interaction.customId.split(':');
+
+    if (interaction.user.id !== starterId) {
+        return await interaction.reply({
+            content: '❌ Завершити або скасувати цей квест може тільки той, хто його почав.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const quest = await questDefinitions.findOne({ key });
+    const state = await questStates.findOne({ key });
+
+    if (!quest || !state || state.status !== 'running') {
+        return await interaction.reply({
+            content: '❌ Цей квест вже не перебуває у виконанні.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const cooldownUntil = Date.now() + quest.cooldownHours * 60 * 60 * 1000;
+    let newBalance = await getBalance();
+
+    if (completed) {
+        newBalance = await changeBalance(quest.reward);
+        await addDailyStat('plus', quest.reward);
+    }
+
+    await questStates.updateOne(
+        { key },
+        {
+            $set: {
+                status: 'cooldown',
+                cooldownUntil,
+                reminder2hSent: false,
+                availableSent: false,
+                completedAt: Date.now(),
+                completed: completed
+            }
+        },
+        { upsert: true }
+    );
+
+    const embed = new EmbedBuilder()
+        .setColor(completed ? 0x00ff88 : 0xff3333)
+        .setTitle(completed ? '✅ КВЕСТ ВИКОНАНО' : '❌ КВЕСТ СКАСОВАНО')
+        .setDescription(
+            `📌 **Квест:** ${quest.name}\n\n` +
+            `👤 **Учасник:** <@${interaction.user.id}>\n\n` +
+            `💰 **Нараховано в банк:** \`${completed ? formatMoney(quest.reward) : '$0'}\`\n` +
+            `💰 **Баланс сейфу:** \`${formatMoney(newBalance)}\`\n\n` +
+            `🔒 **Відкат:** ${quest.cooldownHours} годин\n` +
+            `✅ **Наступна доступність:** ${getKyivDateTime(cooldownUntil)}`
+        )
+        .setFooter({ text: completed ? 'Hoffman Family • Quest Completed' : 'Hoffman Family • Quest Cancelled' })
+        .setTimestamp();
+
+    await interaction.update({
+        embeds: [embed],
+        components: [createDisabledQuestButtons()]
+    });
+}
+
+async function sendQuestStatus(interaction) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const quests = await questDefinitions.find({}).toArray();
+    const now = Date.now();
+
+    let text = '';
+
+    for (const quest of quests) {
+        const state = await questStates.findOne({ key: quest.key });
+
+        if (!state || state.status === 'available') {
+            text += `✅ **${quest.name}** — доступний\n`;
+            continue;
+        }
+
+        if (state.status === 'running') {
+            text += `🔄 **${quest.name}** — виконує <@${state.activeUserId}>\n`;
+            continue;
+        }
+
+        if (state.status === 'cooldown') {
+            if (state.cooldownUntil <= now) {
+                text += `✅ **${quest.name}** — доступний\n`;
+            } else {
+                text += `🔒 **${quest.name}** — доступний через **${formatDuration(state.cooldownUntil - now)}**\n`;
+            }
+        }
+    }
+
+    const embed = new EmbedBuilder()
+        .setColor(0xd4af37)
+        .setTitle('🧩 Hoffman Quest Status')
+        .setDescription(text || 'Квести не знайдено.')
+        .setFooter({ text: 'Hoffman Family • Quest System' })
+        .setTimestamp();
+
+    return await interaction.editReply({ embeds: [embed] });
+}
+
+async function addQuest(interaction) {
+    if (!hasReviewAccess(interaction.member)) {
+        return await interaction.reply({
+            content: '❌ Додавати квести можуть тільки 9/10 ранг.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const name = interaction.options.getString('name');
+    const reward = interaction.options.getInteger('reward');
+    const cooldownHours = interaction.options.getInteger('cooldown_hours');
+
+    const key = makeQuestKey(name);
+
+    await questDefinitions.updateOne(
+        { key },
+        { $set: { key, name, reward, cooldownHours } },
+        { upsert: true }
+    );
+
+    await questStates.updateOne(
+        { key },
+        {
+            $setOnInsert: {
+                key,
+                status: 'available',
+                cooldownUntil: null,
+                activeUserId: null,
+                activeUserName: null,
+                messageId: null,
+                reminder2hSent: false,
+                availableSent: false
+            }
+        },
+        { upsert: true }
+    );
+
+    return await interaction.reply({
+        content:
+            `✅ Квест додано/оновлено:\n` +
+            `📌 **${name}**\n` +
+            `💰 Нагорода: **${formatMoney(reward)}**\n` +
+            `🔒 КД: **${cooldownHours} год.**`,
+        flags: MessageFlags.Ephemeral
+    });
+}
+
+async function checkQuestCooldowns() {
+    if (!QUEST_CHANNEL_ID || !questStates || !questDefinitions) return;
+
+    const channel = await getQuestChannel();
+    if (!channel) return;
+
+    const now = Date.now();
+    const states = await questStates.find({ status: 'cooldown' }).toArray();
+
+    for (const state of states) {
+        const quest = await questDefinitions.findOne({ key: state.key });
+        if (!quest || !state.cooldownUntil) continue;
+
+        const remaining = state.cooldownUntil - now;
+
+        if (remaining <= 0) {
+            if (!state.availableSent) {
+                await channel.send({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setColor(0x00ff88)
+                            .setTitle('✅ КВЕСТ ДОСТУПНИЙ')
+                            .setDescription(
+                                `📌 **${quest.name}** знову доступний для виконання.\n\n` +
+                                `Можна запускати через команду **/quests**.`
+                            )
+                            .setFooter({ text: 'Hoffman Family • Quest Available' })
+                            .setTimestamp()
+                    ]
+                });
+            }
+
+            await questStates.updateOne(
+                { key: state.key },
+                {
+                    $set: {
+                        status: 'available',
+                        activeUserId: null,
+                        activeUserName: null,
+                        cooldownUntil: null,
+                        reminder2hSent: false,
+                        availableSent: true
+                    }
+                }
+            );
+
+            continue;
+        }
+
+        if (remaining <= 2 * 60 * 60 * 1000 && !state.reminder2hSent) {
+            await channel.send({
+                embeds: [
+                    new EmbedBuilder()
+                        .setColor(0xffcc00)
+                        .setTitle('🔔 Hoffman Quest Notification')
+                        .setDescription(
+                            `📌 **Квест:** ${quest.name}\n\n` +
+                            `⏳ До завершення відкату залишилось приблизно **2 години**.\n` +
+                            `✅ Скоро квест знову буде доступний.`
+                        )
+                        .setFooter({ text: 'Hoffman Family • Quest Cooldown' })
+                        .setTimestamp()
+                ]
+            });
+
+            await questStates.updateOne(
+                { key: state.key },
+                { $set: { reminder2hSent: true } }
+            );
+        }
+    }
+}
+
+async function sendQuestAutocomplete(interaction) {
+    const focused = interaction.options.getFocused().toLowerCase();
+    const quests = await questDefinitions.find({}).toArray();
+
+    const filtered = quests
+        .filter(q => q.name.toLowerCase().includes(focused))
+        .slice(0, 25)
+        .map(q => ({
+            name: `${q.name} — ${formatMoney(q.reward)}`,
+            value: q.key
+        }));
+
+    await interaction.respond(filtered).catch(() => {});
+}
+
 const commands = [
     new SlashCommandBuilder()
         .setName('total_plus')
@@ -343,7 +810,50 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('apply')
-        .setDescription('Подати заявку до сімʼї Hoffman')
+        .setDescription('Подати заявку до сімʼї Hoffman'),
+
+    new SlashCommandBuilder()
+        .setName('quests')
+        .setDescription('Почати виконання квесту')
+        .addStringOption(option =>
+            option
+                .setName('quest')
+                .setDescription('Оберіть квест')
+                .setRequired(true)
+                .setAutocomplete(true)
+        )
+        .addStringOption(option =>
+            option
+                .setName('note')
+                .setDescription('Примітка')
+                .setRequired(false)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('quest_status')
+        .setDescription('Показати статус усіх квестів'),
+
+    new SlashCommandBuilder()
+        .setName('quest_add')
+        .setDescription('Додати або оновити квест')
+        .addStringOption(option =>
+            option
+                .setName('name')
+                .setDescription('Назва квесту')
+                .setRequired(true)
+        )
+        .addIntegerOption(option =>
+            option
+                .setName('reward')
+                .setDescription('Нагорода')
+                .setRequired(true)
+        )
+        .addIntegerOption(option =>
+            option
+                .setName('cooldown_hours')
+                .setDescription('КД у годинах')
+                .setRequired(true)
+        )
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -371,6 +881,10 @@ client.once(Events.ClientReady, async () => {
             }
         }, 60000);
 
+        setInterval(async () => {
+            await checkQuestCooldowns();
+        }, 60000);
+
     } catch (error) {
         console.error('Помилка запуску:', error);
     }
@@ -378,6 +892,12 @@ client.once(Events.ClientReady, async () => {
 
 client.on('interactionCreate', async interaction => {
     try {
+        if (interaction.isAutocomplete()) {
+            if (interaction.commandName === 'quests') {
+                return await sendQuestAutocomplete(interaction);
+            }
+        }
+
         if (interaction.isChatInputCommand()) {
             if (interaction.commandName === 'balance') {
                 const balance = await getBalance();
@@ -387,7 +907,7 @@ client.on('interactionCreate', async interaction => {
                     .setTitle('🏦 Hoffman Bank')
                     .setDescription(
                         `💰 **Поточний баланс сейфу:**\n\n` +
-                        `\`$${balance.toLocaleString('en-US')}\``
+                        `\`${formatMoney(balance)}\``
                     )
                     .setFooter({ text: 'Hoffman Bank • Safe Balance' })
                     .setTimestamp();
@@ -412,6 +932,18 @@ client.on('interactionCreate', async interaction => {
 
             if (interaction.commandName === 'apply') {
                 return await openApplicationModal(interaction);
+            }
+
+            if (interaction.commandName === 'quests') {
+                return await startQuest(interaction);
+            }
+
+            if (interaction.commandName === 'quest_status') {
+                return await sendQuestStatus(interaction);
+            }
+
+            if (interaction.commandName === 'quest_add') {
+                return await addQuest(interaction);
             }
 
             const isPlus = interaction.commandName === 'total_plus';
@@ -450,6 +982,14 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             if (interaction.customId === 'open_application_modal') {
                 return await openApplicationModal(interaction);
+            }
+
+            if (interaction.customId.startsWith('quest_finish:')) {
+                return await completeOrCancelQuest(interaction, true);
+            }
+
+            if (interaction.customId.startsWith('quest_cancel:')) {
+                return await completeOrCancelQuest(interaction, false);
             }
 
             if (!['application_approve', 'application_reject'].includes(interaction.customId)) return;
@@ -611,11 +1151,11 @@ client.on('interactionCreate', async interaction => {
                     `     **${isPlus ? 'ПОПОВНЕННЯ' : 'ЗНЯТТЯ КОШТІВ'}**\n` +
                     `╚════════════════════╝\n\n` +
                     `👤 **Нік:** ${nick}\n\n` +
-                    `💵 **Сума:** \`$${amount.toLocaleString('en-US')}\`\n\n` +
+                    `💵 **Сума:** \`${formatMoney(amount)}\`\n\n` +
                     `📝 **Примітка:** ${note}\n\n` +
                     `━━━━━━━━━━━━━━━━━━━━\n\n` +
                     `💰 **Баланс сейфу:**\n` +
-                    `\`$${newBalance.toLocaleString('en-US')}\`\n\n` +
+                    `\`${formatMoney(newBalance)}\`\n\n` +
                     `✅ **Дію виконав:** ${displayName}\n` +
                     `🎭 **Роль:** ${role}`
                 )
