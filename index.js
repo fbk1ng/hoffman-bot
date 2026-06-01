@@ -23,6 +23,8 @@ const TOKEN = process.env.TOKEN;
 const MONGODB_URI = process.env.MONGODB_URI;
 const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID;
 const QUEST_CHANNEL_ID = process.env.QUEST_CHANNEL_ID;
+const BANK_CHANNEL_ID = process.env.BANK_CHANNEL_ID;
+const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 
 const CLIENT_ID = '1501160094006771812';
 const GUILD_ID = '1495987963887227031';
@@ -32,31 +34,18 @@ const APPLICATION_REVIEW_CHANNEL_ID = '1501498789188341851';
 
 const GUEST_ROLE_ID = '1496709652866666586';
 const ACCEPTED_ROLE_ID = '1495998331216723968';
+const RANK_9_ROLE_ID = '1495997440333971507';
+const RANK_10_ROLE_ID = '1495997048669863966';
 
-const REVIEW_ROLE_IDS = [
-    '1495997440333971507',
-    '1495997048669863966'
-];
+const REVIEW_ROLE_IDS = [RANK_9_ROLE_ID, RANK_10_ROLE_ID];
+const FAMILY_ROLE_IDS = [ACCEPTED_ROLE_ID, RANK_9_ROLE_ID, RANK_10_ROLE_ID];
+
+const COOLDOWN_MS = 10 * 1000;
 
 const DEFAULT_QUESTS = [
-    {
-        key: 'tovarnyi_vybukh',
-        name: 'Товарний вибух',
-        reward: 1000000,
-        cooldownHours: 24
-    },
-    {
-        key: 'dopomoha_hromadianam',
-        name: 'Допомога громадянам',
-        reward: 1000000,
-        cooldownHours: 24
-    },
-    {
-        key: 'myslyvskyi_sezon',
-        name: 'Мисливський сезон',
-        reward: 500000,
-        cooldownHours: 24
-    }
+    { key: 'tovarnyi_vybukh', name: 'Товарний вибух', reward: 1000000, cooldownHours: 24 },
+    { key: 'dopomoha_hromadianam', name: 'Допомога громадянам', reward: 1000000, cooldownHours: 24 },
+    { key: 'myslyvskyi_sezon', name: 'Мисливський сезон', reward: 500000, cooldownHours: 24 }
 ];
 
 const client = new Client({
@@ -68,6 +57,13 @@ let dailyStats;
 let botSettings;
 let questDefinitions;
 let questStates;
+
+const commandCooldowns = new Map();
+const pendingWithdrawals = new Map();
+
+function formatMoney(amount) {
+    return `$${Number(amount).toLocaleString('en-US')}`;
+}
 
 function getKyivDate() {
     return new Intl.DateTimeFormat('en-CA', {
@@ -103,10 +99,6 @@ function getKyivTime() {
     };
 }
 
-function formatMoney(amount) {
-    return `$${Number(amount).toLocaleString('en-US')}`;
-}
-
 function formatDuration(ms) {
     if (ms <= 0) return '00:00:00';
 
@@ -127,8 +119,36 @@ function makeQuestKey(name) {
         .slice(0, 40);
 }
 
+function hasRole(member, roleId) {
+    return member?.roles?.cache?.has(roleId);
+}
+
 function hasReviewAccess(member) {
-    return REVIEW_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
+    return REVIEW_ROLE_IDS.some(roleId => hasRole(member, roleId));
+}
+
+function hasFamilyAccess(member) {
+    return FAMILY_ROLE_IDS.some(roleId => hasRole(member, roleId));
+}
+
+function hasLeaderAccess(member) {
+    return hasRole(member, RANK_10_ROLE_ID);
+}
+
+function isBankCommand(commandName) {
+    return ['total_plus', 'total_minus', 'balance', 'report'].includes(commandName);
+}
+
+function isQuestCommand(commandName) {
+    return ['quests', 'quest_status', 'quest_add'].includes(commandName);
+}
+
+function isStaffCommand(commandName) {
+    return ['total_plus', 'total_minus', 'report', 'quest_add'].includes(commandName);
+}
+
+function isFamilyCommand(commandName) {
+    return ['balance', 'quests', 'quest_status'].includes(commandName);
 }
 
 async function connectDB() {
@@ -148,6 +168,12 @@ async function connectDB() {
     await balances.updateOne(
         { name: 'safe' },
         { $setOnInsert: { name: 'safe', balance: 0 } },
+        { upsert: true }
+    );
+
+    await botSettings.updateOne(
+        { name: 'bot_lock' },
+        { $setOnInsert: { name: 'bot_lock', locked: false } },
         { upsert: true }
     );
 
@@ -177,6 +203,26 @@ async function connectDB() {
     }
 
     console.log('MongoDB підключено.');
+}
+
+async function isBotLocked() {
+    const lock = await botSettings.findOne({ name: 'bot_lock' });
+    return Boolean(lock?.locked);
+}
+
+async function setBotLock(locked, userName) {
+    await botSettings.updateOne(
+        { name: 'bot_lock' },
+        {
+            $set: {
+                name: 'bot_lock',
+                locked,
+                changedBy: userName,
+                changedAt: Date.now()
+            }
+        },
+        { upsert: true }
+    );
 }
 
 async function getBalance() {
@@ -211,6 +257,114 @@ async function addDailyStat(type, amount) {
         },
         { upsert: true }
     );
+}
+
+async function logAction(title, description, color = 0xd4af37) {
+    if (!LOG_CHANNEL_ID) return;
+
+    const channel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
+    if (!channel) return;
+
+    const embed = new EmbedBuilder()
+        .setColor(color)
+        .setTitle(title)
+        .setDescription(description)
+        .setFooter({ text: 'Hoffman System • Logs' })
+        .setTimestamp();
+
+    await channel.send({ embeds: [embed] }).catch(() => null);
+}
+
+async function checkGlobalSecurity(interaction) {
+    if (!interaction.isChatInputCommand()) return true;
+
+    const commandName = interaction.commandName;
+
+    const now = Date.now();
+    const cooldownKey = `${interaction.user.id}:${commandName}`;
+    const lastUsed = commandCooldowns.get(cooldownKey);
+
+    if (lastUsed && now - lastUsed < COOLDOWN_MS) {
+        const left = Math.ceil((COOLDOWN_MS - (now - lastUsed)) / 1000);
+
+        await interaction.reply({
+            content: `⏳ Зачекайте **${left} сек.** перед повторним використанням цієї команди.`,
+            flags: MessageFlags.Ephemeral
+        });
+
+        return false;
+    }
+
+    commandCooldowns.set(cooldownKey, now);
+
+    if (await isBotLocked()) {
+        if (commandName !== 'unlock_bot') {
+            await interaction.reply({
+                content: '🔒 Hoffman Bot зараз заблокований адміністрацією.',
+                flags: MessageFlags.Ephemeral
+            });
+
+            return false;
+        }
+    }
+
+    if (commandName === 'apply') {
+        if (!hasRole(interaction.member, GUEST_ROLE_ID)) {
+            await interaction.reply({
+                content: '❌ Команда доступна тільки користувачам з роллю **Гість**.',
+                flags: MessageFlags.Ephemeral
+            });
+
+            return false;
+        }
+    }
+
+    if (isStaffCommand(commandName) && !hasReviewAccess(interaction.member)) {
+        await interaction.reply({
+            content: '❌ У вас немає прав для використання цієї команди.',
+            flags: MessageFlags.Ephemeral
+        });
+
+        return false;
+    }
+
+    if (isFamilyCommand(commandName) && !hasFamilyAccess(interaction.member)) {
+        await interaction.reply({
+            content: '❌ Ця команда доступна тільки учасникам Hoffman Family.',
+            flags: MessageFlags.Ephemeral
+        });
+
+        return false;
+    }
+
+    if (['lock_bot', 'unlock_bot'].includes(commandName) && !hasLeaderAccess(interaction.member)) {
+        await interaction.reply({
+            content: '❌ Ця команда доступна тільки 10 рангу.',
+            flags: MessageFlags.Ephemeral
+        });
+
+        return false;
+    }
+
+    if (isBankCommand(commandName) && BANK_CHANNEL_ID && interaction.channelId !== BANK_CHANNEL_ID) {
+        await interaction.reply({
+            content: '❌ Банківські команди можна використовувати тільки в каналі банку.',
+            flags: MessageFlags.Ephemeral
+        });
+
+        return false;
+    }
+
+    if (isQuestCommand(commandName) && QUEST_CHANNEL_ID && interaction.channelId !== QUEST_CHANNEL_ID) {
+        await interaction.reply({
+            content: '❌ Команди квестів можна використовувати тільки в каналі квестів.',
+            flags: MessageFlags.Ephemeral
+        });
+
+        return false;
+    }
+
+    return true;
 }
 
 async function sendReport(manual = false) {
@@ -260,6 +414,12 @@ async function sendReport(manual = false) {
         { date },
         { $set: { reportSent: true } },
         { upsert: true }
+    );
+
+    await logAction(
+        '📊 Звіт банку',
+        `Звіт відправлено.\n📈 Поповнення: **${formatMoney(plus)}**\n📉 Зняття: **${formatMoney(minus)}**\n💰 Баланс: **${formatMoney(balance)}**`,
+        0xd4af37
     );
 
     return { ok: true, message: '✅ Звіт відправлено.' };
@@ -349,7 +509,7 @@ async function openApplicationModal(interaction) {
         });
     }
 
-    if (!interaction.member.roles.cache.has(GUEST_ROLE_ID)) {
+    if (!hasRole(interaction.member, GUEST_ROLE_ID)) {
         return await interaction.reply({
             content: '❌ Подавати заявку можуть тільки користувачі з роллю **Гість**.',
             flags: MessageFlags.Ephemeral
@@ -467,20 +627,6 @@ function createDisabledQuestButtons() {
 }
 
 async function startQuest(interaction) {
-    if (!QUEST_CHANNEL_ID) {
-        return await interaction.reply({
-            content: '❌ QUEST_CHANNEL_ID не доданий у Render.',
-            flags: MessageFlags.Ephemeral
-        });
-    }
-
-    if (interaction.channelId !== QUEST_CHANNEL_ID) {
-        return await interaction.reply({
-            content: '❌ Запускати квести можна тільки в каналі квестів.',
-            flags: MessageFlags.Ephemeral
-        });
-    }
-
     const questKey = interaction.options.getString('quest');
     const note = interaction.options.getString('note') || '—';
 
@@ -547,6 +693,12 @@ async function startQuest(interaction) {
         { upsert: true }
     );
 
+    await logAction(
+        '🧩 Квест запущено',
+        `📌 Квест: **${quest.name}**\n👤 Почав: <@${interaction.user.id}>\n💰 Нагорода: **${formatMoney(quest.reward)}**`,
+        0xd4af37
+    );
+
     return await interaction.reply({
         content: `✅ Квест **${quest.name}** запущено.`,
         flags: MessageFlags.Ephemeral
@@ -590,7 +742,7 @@ async function completeOrCancelQuest(interaction, completed) {
                 reminder2hSent: false,
                 availableSent: false,
                 completedAt: Date.now(),
-                completed: completed
+                completed
             }
         },
         { upsert: true }
@@ -609,6 +761,12 @@ async function completeOrCancelQuest(interaction, completed) {
         )
         .setFooter({ text: completed ? 'Hoffman Family • Quest Completed' : 'Hoffman Family • Quest Cancelled' })
         .setTimestamp();
+
+    await logAction(
+        completed ? '✅ Квест виконано' : '❌ Квест скасовано',
+        `📌 Квест: **${quest.name}**\n👤 Учасник: <@${interaction.user.id}>\n💰 Нараховано: **${completed ? formatMoney(quest.reward) : '$0'}**\n🔒 Наступна доступність: **${getKyivDateTime(cooldownUntil)}**`,
+        completed ? 0x00ff88 : 0xff3333
+    );
 
     await interaction.update({
         embeds: [embed],
@@ -657,13 +815,6 @@ async function sendQuestStatus(interaction) {
 }
 
 async function addQuest(interaction) {
-    if (!hasReviewAccess(interaction.member)) {
-        return await interaction.reply({
-            content: '❌ Додавати квести можуть тільки 9/10 ранг.',
-            flags: MessageFlags.Ephemeral
-        });
-    }
-
     const name = interaction.options.getString('name');
     const reward = interaction.options.getInteger('reward');
     const cooldownHours = interaction.options.getInteger('cooldown_hours');
@@ -691,6 +842,12 @@ async function addQuest(interaction) {
             }
         },
         { upsert: true }
+    );
+
+    await logAction(
+        '➕ Квест додано/оновлено',
+        `📌 Квест: **${name}**\n💰 Нагорода: **${formatMoney(reward)}**\n🔒 КД: **${cooldownHours} год.**\n👤 Додав/оновив: **${interaction.member.displayName}**`,
+        0xd4af37
     );
 
     return await interaction.reply({
@@ -792,68 +949,39 @@ async function sendQuestAutocomplete(interaction) {
 }
 
 const commands = [
-    new SlashCommandBuilder()
-        .setName('total_plus')
-        .setDescription('Поповнення сейфу'),
-
-    new SlashCommandBuilder()
-        .setName('total_minus')
-        .setDescription('Зняття коштів'),
-
-    new SlashCommandBuilder()
-        .setName('balance')
-        .setDescription('Показати баланс сейфу'),
-
-    new SlashCommandBuilder()
-        .setName('report')
-        .setDescription('Відправити звіт вручну'),
-
-    new SlashCommandBuilder()
-        .setName('apply')
-        .setDescription('Подати заявку до сімʼї Hoffman'),
+    new SlashCommandBuilder().setName('total_plus').setDescription('Поповнення сейфу'),
+    new SlashCommandBuilder().setName('total_minus').setDescription('Зняття коштів'),
+    new SlashCommandBuilder().setName('balance').setDescription('Показати баланс сейфу'),
+    new SlashCommandBuilder().setName('report').setDescription('Відправити звіт вручну'),
+    new SlashCommandBuilder().setName('apply').setDescription('Подати заявку до сімʼї Hoffman'),
 
     new SlashCommandBuilder()
         .setName('quests')
         .setDescription('Почати виконання квесту')
         .addStringOption(option =>
-            option
-                .setName('quest')
-                .setDescription('Оберіть квест')
-                .setRequired(true)
-                .setAutocomplete(true)
+            option.setName('quest').setDescription('Оберіть квест').setRequired(true).setAutocomplete(true)
         )
         .addStringOption(option =>
-            option
-                .setName('note')
-                .setDescription('Примітка')
-                .setRequired(false)
+            option.setName('note').setDescription('Примітка').setRequired(false)
         ),
 
-    new SlashCommandBuilder()
-        .setName('quest_status')
-        .setDescription('Показати статус усіх квестів'),
+    new SlashCommandBuilder().setName('quest_status').setDescription('Показати статус усіх квестів'),
 
     new SlashCommandBuilder()
         .setName('quest_add')
         .setDescription('Додати або оновити квест')
         .addStringOption(option =>
-            option
-                .setName('name')
-                .setDescription('Назва квесту')
-                .setRequired(true)
+            option.setName('name').setDescription('Назва квесту').setRequired(true)
         )
         .addIntegerOption(option =>
-            option
-                .setName('reward')
-                .setDescription('Нагорода')
-                .setRequired(true)
+            option.setName('reward').setDescription('Нагорода').setRequired(true)
         )
         .addIntegerOption(option =>
-            option
-                .setName('cooldown_hours')
-                .setDescription('КД у годинах')
-                .setRequired(true)
-        )
+            option.setName('cooldown_hours').setDescription('КД у годинах').setRequired(true)
+        ),
+
+    new SlashCommandBuilder().setName('lock_bot').setDescription('Заблокувати Hoffman Bot'),
+    new SlashCommandBuilder().setName('unlock_bot').setDescription('Розблокувати Hoffman Bot')
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -899,16 +1027,46 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isChatInputCommand()) {
+            const allowed = await checkGlobalSecurity(interaction);
+            if (!allowed) return;
+
+            if (interaction.commandName === 'lock_bot') {
+                await setBotLock(true, interaction.member.displayName);
+
+                await logAction(
+                    '🔒 Бот заблоковано',
+                    `👤 Заблокував: **${interaction.member.displayName}**`,
+                    0xff3333
+                );
+
+                return await interaction.reply({
+                    content: '🔒 Hoffman Bot заблоковано.',
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            if (interaction.commandName === 'unlock_bot') {
+                await setBotLock(false, interaction.member.displayName);
+
+                await logAction(
+                    '🔓 Бот розблоковано',
+                    `👤 Розблокував: **${interaction.member.displayName}**`,
+                    0x00ff88
+                );
+
+                return await interaction.reply({
+                    content: '🔓 Hoffman Bot розблоковано.',
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
             if (interaction.commandName === 'balance') {
                 const balance = await getBalance();
 
                 const embed = new EmbedBuilder()
                     .setColor(0xd4af37)
                     .setTitle('🏦 Hoffman Bank')
-                    .setDescription(
-                        `💰 **Поточний баланс сейфу:**\n\n` +
-                        `\`${formatMoney(balance)}\``
-                    )
+                    .setDescription(`💰 **Поточний баланс сейфу:**\n\n\`${formatMoney(balance)}\``)
                     .setFooter({ text: 'Hoffman Bank • Safe Balance' })
                     .setTimestamp();
 
@@ -919,9 +1077,7 @@ client.on('interactionCreate', async interaction => {
             }
 
             if (interaction.commandName === 'report') {
-                await interaction.deferReply({
-                    flags: MessageFlags.Ephemeral
-                });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const result = await sendReport(true);
 
@@ -984,6 +1140,81 @@ client.on('interactionCreate', async interaction => {
                 return await openApplicationModal(interaction);
             }
 
+            if (interaction.customId.startsWith('withdraw_confirm:')) {
+                const userId = interaction.customId.split(':')[1];
+
+                if (interaction.user.id !== userId) {
+                    return await interaction.reply({
+                        content: '❌ Це підтвердження не для вас.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                const data = pendingWithdrawals.get(userId);
+
+                if (!data) {
+                    return await interaction.reply({
+                        content: '❌ Операція вже застаріла або не знайдена.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                pendingWithdrawals.delete(userId);
+
+                const newBalance = await changeBalance(-data.amount);
+                await addDailyStat('minus', data.amount);
+
+                const embed = new EmbedBuilder()
+                    .setColor(0xff3333)
+                    .setTitle('🔴 Hoffman Bank — Зняття коштів')
+                    .setDescription(
+                        `╔════════════════════╗\n` +
+                        `     **ЗНЯТТЯ КОШТІВ**\n` +
+                        `╚════════════════════╝\n\n` +
+                        `👤 **Нік:** ${data.nick}\n\n` +
+                        `💵 **Сума:** \`${formatMoney(data.amount)}\`\n\n` +
+                        `📝 **Примітка:** ${data.note}\n\n` +
+                        `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                        `💰 **Баланс сейфу:**\n` +
+                        `\`${formatMoney(newBalance)}\`\n\n` +
+                        `✅ **Дію виконав:** ${data.displayName}\n` +
+                        `🎭 **Роль:** ${data.role}`
+                    )
+                    .setFooter({ text: 'Hoffman Bank • Transaction System' })
+                    .setTimestamp();
+
+                await logAction(
+                    '📉 Зняття коштів',
+                    `👤 Виконав: **${data.displayName}**\n📝 Нік: **${data.nick}**\n💵 Сума: **${formatMoney(data.amount)}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${data.note}`,
+                    0xff3333
+                );
+
+                return await interaction.update({
+                    content: '',
+                    embeds: [embed],
+                    components: []
+                });
+            }
+
+            if (interaction.customId.startsWith('withdraw_cancel:')) {
+                const userId = interaction.customId.split(':')[1];
+
+                if (interaction.user.id !== userId) {
+                    return await interaction.reply({
+                        content: '❌ Це підтвердження не для вас.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                pendingWithdrawals.delete(userId);
+
+                return await interaction.update({
+                    content: '❌ Зняття коштів скасовано.',
+                    embeds: [],
+                    components: []
+                });
+            }
+
             if (interaction.customId.startsWith('quest_finish:')) {
                 return await completeOrCancelQuest(interaction, true);
             }
@@ -1023,6 +1254,12 @@ client.on('interactionCreate', async interaction => {
                 }
             }
 
+            await logAction(
+                approved ? '✅ Заявку схвалено' : '❌ Заявку відхилено',
+                `👤 Кандидат: ${applicantId ? `<@${applicantId}>` : 'невідомо'}\n🛡 Розглянув: **${interaction.member.displayName}**`,
+                approved ? 0x00ff88 : 0xff3333
+            );
+
             const newEmbed = EmbedBuilder.from(oldEmbed)
                 .setColor(approved ? 0x00ff88 : 0xff3333)
                 .addFields({
@@ -1058,9 +1295,7 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.type === InteractionType.ModalSubmit) {
             if (interaction.customId === 'hoffman_application') {
-                await interaction.deferReply({
-                    flags: MessageFlags.Ephemeral
-                });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const nickStatic = interaction.fields.getTextInputValue('nick_static');
                 const gameLevel = interaction.fields.getTextInputValue('game_level');
@@ -1106,6 +1341,12 @@ client.on('interactionCreate', async interaction => {
                     components: [buttons]
                 });
 
+                await logAction(
+                    '📨 Нова заявка',
+                    `👤 Кандидат: <@${interaction.user.id}>\n📝 Nick: **${nickStatic}**\n🎮 Рівень: **${gameLevel}**`,
+                    0xd4af37
+                );
+
                 return await interaction.editReply({
                     content: '✅ Заявка успішно подана. Термін розгляду — до 4 годин.'
                 });
@@ -1126,9 +1367,6 @@ client.on('interactionCreate', async interaction => {
             }
 
             const isPlus = interaction.customId === 'modal_plus';
-            const newBalance = await changeBalance(isPlus ? amount : -amount);
-
-            await addDailyStat(isPlus ? 'plus' : 'minus', amount);
 
             const member = interaction.member;
             const displayName = member?.displayName || interaction.user.username;
@@ -1139,16 +1377,58 @@ client.on('interactionCreate', async interaction => {
                     .sort((a, b) => b.position - a.position)
                     .first()?.name || 'Без ролі';
 
+            if (!isPlus) {
+                pendingWithdrawals.set(interaction.user.id, {
+                    nick,
+                    amount,
+                    note,
+                    displayName,
+                    role,
+                    createdAt: Date.now()
+                });
+
+                const confirmEmbed = new EmbedBuilder()
+                    .setColor(0xffcc00)
+                    .setTitle('⚠️ Підтвердження зняття коштів')
+                    .setDescription(
+                        `👤 **Нік:** ${nick}\n\n` +
+                        `💵 **Сума:** \`${formatMoney(amount)}\`\n\n` +
+                        `📝 **Примітка:** ${note}\n\n` +
+                        `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                        `Натисніть **Підтвердити**, щоб виконати зняття.`
+                    )
+                    .setFooter({ text: 'Hoffman Bank • Withdraw Confirmation' })
+                    .setTimestamp();
+
+                const buttons = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`withdraw_confirm:${interaction.user.id}`)
+                        .setLabel('Підтвердити')
+                        .setStyle(ButtonStyle.Success)
+                        .setEmoji('✅'),
+
+                    new ButtonBuilder()
+                        .setCustomId(`withdraw_cancel:${interaction.user.id}`)
+                        .setLabel('Скасувати')
+                        .setStyle(ButtonStyle.Danger)
+                        .setEmoji('❌')
+                );
+
+                return await interaction.editReply({
+                    embeds: [confirmEmbed],
+                    components: [buttons]
+                });
+            }
+
+            const newBalance = await changeBalance(amount);
+            await addDailyStat('plus', amount);
+
             const embed = new EmbedBuilder()
-                .setColor(isPlus ? 0x00ff88 : 0xff3333)
-                .setTitle(
-                    isPlus
-                        ? '🟢 Hoffman Bank — Поповнення сейфу'
-                        : '🔴 Hoffman Bank — Зняття коштів'
-                )
+                .setColor(0x00ff88)
+                .setTitle('🟢 Hoffman Bank — Поповнення сейфу')
                 .setDescription(
                     `╔════════════════════╗\n` +
-                    `     **${isPlus ? 'ПОПОВНЕННЯ' : 'ЗНЯТТЯ КОШТІВ'}**\n` +
+                    `     **ПОПОВНЕННЯ**\n` +
                     `╚════════════════════╝\n\n` +
                     `👤 **Нік:** ${nick}\n\n` +
                     `💵 **Сума:** \`${formatMoney(amount)}\`\n\n` +
@@ -1159,10 +1439,14 @@ client.on('interactionCreate', async interaction => {
                     `✅ **Дію виконав:** ${displayName}\n` +
                     `🎭 **Роль:** ${role}`
                 )
-                .setFooter({
-                    text: 'Hoffman Bank • Transaction System'
-                })
+                .setFooter({ text: 'Hoffman Bank • Transaction System' })
                 .setTimestamp();
+
+            await logAction(
+                '📈 Поповнення сейфу',
+                `👤 Виконав: **${displayName}**\n📝 Нік: **${nick}**\n💵 Сума: **${formatMoney(amount)}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${note}`,
+                0x00ff88
+            );
 
             return await interaction.editReply({
                 embeds: [embed]
@@ -1187,12 +1471,8 @@ client.on('interactionCreate', async interaction => {
 client.login(TOKEN);
 
 http.createServer((req, res) => {
-    res.writeHead(200, {
-        'Content-Type': 'text/plain'
-    });
-
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Bot is running');
-
 }).listen(process.env.PORT || 3000, () => {
     console.log('Web server запущений для Render');
 });
