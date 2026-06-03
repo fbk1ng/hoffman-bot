@@ -461,9 +461,21 @@ function createApplicationPanelEmbed() {
 function createApplicationPanelButton() {
     return new ActionRowBuilder().addComponents(
         new ButtonBuilder()
+            .setCustomId('get_guest_role')
+            .setLabel('Отримати роль')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('✅'),
+
+        new ButtonBuilder()
+            .setCustomId('show_rules')
+            .setLabel('Правила')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('📜'),
+
+        new ButtonBuilder()
             .setCustomId('open_application_modal')
             .setLabel('Подати заявку')
-            .setStyle(ButtonStyle.Success)
+            .setStyle(ButtonStyle.Primary)
             .setEmoji('📨')
     );
 }
@@ -1389,6 +1401,45 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isButton()) {
+             if (interaction.customId === 'get_guest_role') {
+                if (interaction.member.roles.cache.has(GUEST_ROLE_ID)) {
+                    return await interaction.reply({
+                        content: 'ℹ️ У вас вже є роль **Гість**.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                await interaction.member.roles.add(GUEST_ROLE_ID);
+
+                await logAction(
+                    '👤 Видано роль Гість',
+                    `Користувач: <@${interaction.user.id}>\nРоль: **Гість**`,
+                    0x00ff88
+                );
+
+                return await interaction.reply({
+                    content: '✅ Вам успішно видано роль **Гість**.',
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            if (interaction.customId === 'show_rules') {
+                return await interaction.reply({
+                    content:
+                        '📜 **Основні правила Hoffman Family**\n\n' +
+                        '1. Поважайте всіх учасників сімʼї.\n' +
+                        '2. Заборонені образи, провокації та токсична поведінка.\n' +
+                        '3. Заборонений спам, флуд та беззмістовні повідомлення.\n' +
+                        '4. Виконуйте вказівки керівництва сімʼї.\n' +
+                        '5. Не виносьте внутрішню інформацію за межі сімʼї.\n' +
+                        '6. Підтримуйте адекватну RP-атмосферу.\n' +
+                        '7. Перед подачею заявки заповнюйте форму чесно та повністю.\n\n' +
+                        '🏛 **Hoffman Family**\n' +
+                        'Luxury • Loyalty • Respect',
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+            
             if (interaction.customId === 'open_application_modal') {
                 return await openApplicationModal(interaction);
             }
