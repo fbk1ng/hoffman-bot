@@ -26,6 +26,9 @@ const QUEST_CHANNEL_ID = process.env.QUEST_CHANNEL_ID;
 const BANK_CHANNEL_ID = process.env.BANK_CHANNEL_ID;
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 
+const BIRTHDAY_CHANNEL_ID = '1495990457904140428';
+const BIRTHDAY_NEWS_CHANNEL_ID = '1495989840930672721';
+
 const CLIENT_ID = '1501160094006771812';
 const GUILD_ID = '1495987963887227031';
 
@@ -57,6 +60,7 @@ let dailyStats;
 let botSettings;
 let questDefinitions;
 let questStates;
+let birthdays;
 
 const commandCooldowns = new Map();
 const pendingWithdrawals = new Map();
@@ -164,6 +168,9 @@ async function connectDB() {
     botSettings = db.collection('bot_settings');
     questDefinitions = db.collection('quest_definitions');
     questStates = db.collection('quest_states');
+    birthdays = db.collection('birthdays');
+
+    await birthdays.createIndex({ nameLower: 1 }, { unique: true });
 
     await balances.updateOne(
         { name: 'safe' },
@@ -732,7 +739,7 @@ async function completeOrCancelQuest(interaction, completed) {
         newBalance = await changeBalance(quest.reward);
         await addDailyStat('plus', quest.reward);
     }
-
+    
     await questStates.updateOne(
         { key },
         {
@@ -948,6 +955,247 @@ async function sendQuestAutocomplete(interaction) {
     await interaction.respond(filtered).catch(() => {});
 }
 
+function normalizeBirthday(value) {
+    const cleaned = value.trim().replace(/\s/g, '');
+    const match = cleaned.match(/^(\d{1,2})[./-](\d{1,2})$/);
+
+    if (!match) return null;
+
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+
+    if (month < 1 || month > 12) return null;
+
+    const daysInMonth = {
+        1: 31,
+        2: 29,
+        3: 31,
+        4: 30,
+        5: 31,
+        6: 30,
+        7: 31,
+        8: 31,
+        9: 30,
+        10: 31,
+        11: 30,
+        12: 31
+    };
+
+    if (day < 1 || day > daysInMonth[month]) return null;
+
+    return `${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}`;
+}
+
+function getKyivDayMonthYear() {
+    const parts = new Intl.DateTimeFormat('uk-UA', {
+        timeZone: 'Europe/Kyiv',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    }).formatToParts(new Date());
+
+    return {
+        day: parts.find(p => p.type === 'day').value,
+        month: parts.find(p => p.type === 'month').value,
+        year: parts.find(p => p.type === 'year').value
+    };
+}
+
+async function createBirthdayPanelEmbed() {
+    const list = await birthdays.find({}).sort({ birthdaySort: 1, name: 1 }).toArray();
+
+    let text = '';
+
+    if (!list.length) {
+        text = 'Поки що список днів народження порожній.';
+    } else {
+        text = list
+            .map(item => `🎂 **${item.birthday}** — ${item.name}`)
+            .join('\n');
+    }
+
+    return new EmbedBuilder()
+        .setColor(0xd4af37)
+        .setTitle('🎂 Hoffman Birthday System')
+        .setDescription(
+            `Список днів народження учасників сімʼї Hoffman.\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `${text}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `📌 **Всього записів:** ${list.length}\n\n` +
+            `➕ **Додати** — внести новий день народження\n` +
+            `➖ **Видалити** — прибрати запис зі списку`
+        )
+        .setFooter({ text: 'Hoffman Family • Birthday System' })
+        .setTimestamp();
+}
+
+function createBirthdayButtons() {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('birthday_add')
+            .setLabel('Додати')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('➕'),
+
+        new ButtonBuilder()
+            .setCustomId('birthday_remove')
+            .setLabel('Видалити')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('➖')
+    );
+}
+
+async function ensureBirthdayPanel() {
+    const channel = await client.channels.fetch(BIRTHDAY_CHANNEL_ID).catch(() => null);
+
+    if (!channel) {
+        console.log('Канал днів народження не знайдено.');
+        return;
+    }
+
+    const settings = await botSettings.findOne({ name: 'birthday_panel' });
+    const embed = await createBirthdayPanelEmbed();
+    const buttons = createBirthdayButtons();
+
+    if (settings?.messageId) {
+        const oldMessage = await channel.messages.fetch(settings.messageId).catch(() => null);
+
+        if (oldMessage) {
+            await oldMessage.edit({
+                embeds: [embed],
+                components: [buttons]
+            });
+
+            console.log('Панель днів народження оновлено.');
+            return;
+        }
+    }
+
+    const message = await channel.send({
+        embeds: [embed],
+        components: [buttons]
+    });
+
+    await botSettings.updateOne(
+        { name: 'birthday_panel' },
+        { $set: { name: 'birthday_panel', messageId: message.id } },
+        { upsert: true }
+    );
+
+    console.log('Панель днів народження створено.');
+}
+
+async function updateBirthdayPanel() {
+    await ensureBirthdayPanel();
+}
+
+async function openBirthdayAddModal(interaction) {
+    if (!hasReviewAccess(interaction.member)) {
+        return await interaction.reply({
+            content: '❌ Додавати дні народження можуть тільки 9/10 ранг.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const modal = new ModalBuilder()
+        .setCustomId('birthday_add_modal')
+        .setTitle('Додати день народження');
+
+    const nameInput = new TextInputBuilder()
+        .setCustomId('birthday_name')
+        .setLabel('Імʼя / Nick')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Наприклад: Hans Hoffman')
+        .setRequired(true);
+
+    const dateInput = new TextInputBuilder()
+        .setCustomId('birthday_date')
+        .setLabel('Дата народження')
+        .setPlaceholder('Наприклад: 02.05')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(nameInput),
+        new ActionRowBuilder().addComponents(dateInput)
+    );
+
+    return await interaction.showModal(modal);
+}
+
+async function openBirthdayRemoveModal(interaction) {
+    if (!hasReviewAccess(interaction.member)) {
+        return await interaction.reply({
+            content: '❌ Видаляти дні народження можуть тільки 9/10 ранг.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const modal = new ModalBuilder()
+        .setCustomId('birthday_remove_modal')
+        .setTitle('Видалити день народження');
+
+    const nameInput = new TextInputBuilder()
+        .setCustomId('birthday_remove_name')
+        .setLabel('Імʼя / Nick для видалення')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Наприклад: Hans Hoffman')
+        .setRequired(true);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(nameInput)
+    );
+
+    return await interaction.showModal(modal);
+}
+
+async function checkBirthdays() {
+    if (!birthdays) return;
+
+    const { day, month, year } = getKyivDayMonthYear();
+    const { hour, minute } = getKyivTime();
+
+    if (hour !== 9 || minute > 10) return;
+
+    const today = `${day}.${month}`;
+    const list = await birthdays.find({ birthday: today }).toArray();
+
+    if (!list.length) return;
+
+    const newsChannel = await client.channels.fetch(BIRTHDAY_NEWS_CHANNEL_ID).catch(() => null);
+    if (!newsChannel) return;
+
+    for (const person of list) {
+        if (person.lastCongratulatedYear === year) continue;
+
+        const embed = new EmbedBuilder()
+            .setColor(0xd4af37)
+            .setTitle('🎉 Hoffman Family вітає з днем народження!')
+            .setDescription(
+                `Сьогодні день народження у **${person.name}**! 🎂\n\n` +
+                `Бажаємо міцного здоровʼя, гарного настрою, успіхів, великих перемог та тільки приємних моментів у грі й житті.\n\n` +
+                `🏛 **Hoffman Family**\n` +
+                `Luxury • Loyalty • Respect`
+            )
+            .setFooter({ text: 'Hoffman Family • Birthday Notification' })
+            .setTimestamp();
+
+        await newsChannel.send({ embeds: [embed] });
+
+        await birthdays.updateOne(
+            { _id: person._id },
+            { $set: { lastCongratulatedYear: year } }
+        );
+
+        await logAction(
+            '🎂 Автопривітання',
+            `Бот привітав **${person.name}** з днем народження.`,
+            0xd4af37
+        );
+    }
+}
+
 const commands = [
     new SlashCommandBuilder().setName('total_plus').setDescription('Поповнення сейфу'),
     new SlashCommandBuilder().setName('total_minus').setDescription('Зняття коштів'),
@@ -1000,6 +1248,7 @@ client.once(Events.ClientReady, async () => {
         console.log('Команди зареєстровано.');
 
         await ensureApplicationPanel();
+        await ensureBirthdayPanel();
 
         setInterval(async () => {
             const { hour, minute } = getKyivTime();
@@ -1011,6 +1260,10 @@ client.once(Events.ClientReady, async () => {
 
         setInterval(async () => {
             await checkQuestCooldowns();
+        }, 60000);
+
+        setInterval(async () => {
+            await checkBirthdays();
         }, 60000);
 
     } catch (error) {
@@ -1138,6 +1391,14 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             if (interaction.customId === 'open_application_modal') {
                 return await openApplicationModal(interaction);
+            }
+
+            if (interaction.customId === 'birthday_add') {
+                return await openBirthdayAddModal(interaction);
+            }
+
+            if (interaction.customId === 'birthday_remove') {
+                return await openBirthdayRemoveModal(interaction);
             }
 
             if (interaction.customId.startsWith('withdraw_confirm:')) {
@@ -1294,6 +1555,90 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.type === InteractionType.ModalSubmit) {
+            if (interaction.customId === 'birthday_add_modal') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                if (!hasReviewAccess(interaction.member)) {
+                    return await interaction.editReply({
+                        content: '❌ Додавати дні народження можуть тільки 9/10 ранг.'
+                    });
+                }
+
+                const name = interaction.fields.getTextInputValue('birthday_name').trim();
+                const birthdayRaw = interaction.fields.getTextInputValue('birthday_date');
+                const birthday = normalizeBirthday(birthdayRaw);
+
+                if (!birthday) {
+                    return await interaction.editReply({
+                        content: '❌ Невірний формат дати. Приклад правильного формату: **02.05**'
+                    });
+                }
+
+                const [day, month] = birthday.split('.');
+                const birthdaySort = Number(month) * 100 + Number(day);
+                const nameLower = name.toLowerCase();
+
+                await birthdays.updateOne(
+                    { nameLower },
+                    {
+                        $set: {
+                            name,
+                            nameLower,
+                            birthday,
+                            birthdaySort,
+                            addedBy: interaction.member.displayName,
+                            updatedAt: Date.now()
+                        }
+                    },
+                    { upsert: true }
+                );
+
+                await updateBirthdayPanel();
+
+                await logAction(
+                    '🎂 День народження додано/оновлено',
+                    `👤 **${name}**\n📅 Дата: **${birthday}**\n🛡 Додав/оновив: **${interaction.member.displayName}**`,
+                    0xd4af37
+                );
+
+                return await interaction.editReply({
+                    content: `✅ День народження додано/оновлено: **${name} — ${birthday}**`
+                });
+            }
+
+            if (interaction.customId === 'birthday_remove_modal') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                if (!hasReviewAccess(interaction.member)) {
+                    return await interaction.editReply({
+                        content: '❌ Видаляти дні народження можуть тільки 9/10 ранг.'
+                    });
+                }
+
+                const name = interaction.fields.getTextInputValue('birthday_remove_name').trim();
+                const nameLower = name.toLowerCase();
+
+                const result = await birthdays.deleteOne({ nameLower });
+
+                if (!result.deletedCount) {
+                    return await interaction.editReply({
+                        content: '❌ Запис не знайдено. Перевір імʼя.'
+                    });
+                }
+
+                await updateBirthdayPanel();
+
+                await logAction(
+                    '🗑 День народження видалено',
+                    `👤 **${name}**\n🛡 Видалив: **${interaction.member.displayName}**`,
+                    0xff3333
+                );
+
+                return await interaction.editReply({
+                    content: `✅ День народження видалено: **${name}**`
+                });
+            }
+
             if (interaction.customId === 'hoffman_application') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
