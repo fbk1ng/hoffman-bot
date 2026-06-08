@@ -1269,6 +1269,206 @@ async function checkBirthdays() {
     }
 }
 
+}
+
+async function createLotteryPanelEmbed() {
+    const settings = await getLotterySettings();
+    const tickets = await getAllLotteryTickets();
+
+    const totalTickets = tickets.reduce((sum, item) => sum + (item.tickets || 0), 0);
+    const participants = tickets.filter(item => item.tickets > 0).length;
+
+    const prizeText = settings.prizeType === 'money'
+        ? `💰 Випадкова сума від **${formatMoney(settings.minPrize)}** до **${formatMoney(settings.maxPrize)}**`
+        : `🎁 **${settings.manualPrizeName || 'Ручний приз'}**\n${settings.manualPrizeDescription || 'Опис не вказано.'}`;
+
+    return new EmbedBuilder()
+        .setColor(0xd4af37)
+        .setTitle('🎰 HOFFMAN WEEKLY LOTTERY')
+        .setDescription(
+            `🏛 Щотижневий розіграш серед учасників Hoffman Family.\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `📅 **Розіграш:** щонеділі о 21:00\n\n` +
+            `🎁 **Приз цього тижня:**\n${prizeText}\n\n` +
+            `🎟 **Як отримати квитки:**\n` +
+            `1 виконаний квест = 1 квиток\n` +
+            `Якщо квест виконували разом — кожен учасник отримує по 1 квитку.\n\n` +
+            `📊 **Учасників цього тижня:** ${participants}\n` +
+            `🎟 **Загальна кількість квитків:** ${totalTickets}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `Чим більше активності — тим більше шансів на перемогу.`
+        )
+        .setFooter({ text: 'Hoffman Family • Weekly Lottery' })
+        .setTimestamp();
+}
+
+function createLotteryPanelButtons() {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('lottery_my_tickets')
+            .setLabel('Мої квитки')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('🎟'),
+
+        new ButtonBuilder()
+            .setCustomId('lottery_table')
+            .setLabel('Таблиця')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('📊'),
+
+        new ButtonBuilder()
+            .setCustomId('lottery_history')
+            .setLabel('Історія')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🏆')
+    );
+}
+
+async function ensureLotteryPanel() {
+    const channel = await client.channels.fetch(LOTTERY_CHANNEL_ID).catch(() => null);
+    if (!channel) {
+        console.log('Канал лотереї не знайдено.');
+        return;
+    }
+
+    const settings = await getLotterySettings();
+    const embed = await createLotteryPanelEmbed();
+    const buttons = createLotteryPanelButtons();
+
+    if (settings?.lotteryPanelMessageId) {
+        const oldMessage = await channel.messages.fetch(settings.lotteryPanelMessageId).catch(() => null);
+
+        if (oldMessage) {
+            await oldMessage.edit({ embeds: [embed], components: [buttons] });
+            console.log('Панель лотереї оновлено.');
+            return;
+        }
+    }
+
+    const message = await channel.send({
+        embeds: [embed],
+        components: [buttons]
+    });
+
+    await updateLotterySettings({
+        lotteryPanelMessageId: message.id
+    });
+
+    console.log('Панель лотереї створено.');
+}
+
+async function updateLotteryPanel() {
+    await ensureLotteryPanel();
+}
+
+async function createLotteryCrmEmbed() {
+    const settings = await getLotterySettings();
+    const tickets = await getAllLotteryTickets();
+
+    const totalTickets = tickets.reduce((sum, item) => sum + (item.tickets || 0), 0);
+    const participants = tickets.filter(item => item.tickets > 0).length;
+
+    const prizeText = settings.prizeType === 'money'
+        ? `💰 ${formatMoney(settings.minPrize)} — ${formatMoney(settings.maxPrize)}`
+        : `🎁 ${settings.manualPrizeName || 'Ручний приз'}\n${settings.manualPrizeDescription || 'Опис не вказано.'}`;
+
+    return new EmbedBuilder()
+        .setColor(0xd4af37)
+        .setTitle('🎰 HOFFMAN LOTTERY CRM')
+        .setDescription(
+            `⚙️ **Статус:** ${settings.enabled ? 'Увімкнено' : 'Вимкнено'}\n` +
+            `📅 **Авто-розіграш:** щонеділі о 21:00\n\n` +
+            `🎁 **Активний приз:**\n${prizeText}\n\n` +
+            `👥 **Учасників:** ${participants}\n` +
+            `🎟 **Квитків:** ${totalTickets}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `CRM-панель доступна тільки керівництву Hoffman Family.`
+        )
+        .setFooter({ text: 'Hoffman Family • Lottery CRM' })
+        .setTimestamp();
+}
+
+function createLotteryCrmButtons() {
+    const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('lottery_run_now')
+            .setLabel('Провести зараз')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('▶️'),
+
+        new ButtonBuilder()
+            .setCustomId('lottery_set_money')
+            .setLabel('Грошовий приз')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('💰'),
+
+        new ButtonBuilder()
+            .setCustomId('lottery_set_manual_prize')
+            .setLabel('Ручний приз')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('🎁')
+    );
+
+    const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('lottery_add_ticket')
+            .setLabel('Видати квитки')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🎟'),
+
+        new ButtonBuilder()
+            .setCustomId('lottery_reset_tickets')
+            .setLabel('Скинути квитки')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('🗑'),
+
+        new ButtonBuilder()
+            .setCustomId('lottery_refresh')
+            .setLabel('Оновити')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🔁')
+    );
+
+    return [row1, row2];
+}
+
+async function ensureLotteryCrmPanel() {
+    const channel = await client.channels.fetch(LOTTERY_CRM_CHANNEL_ID).catch(() => null);
+    if (!channel) {
+        console.log('CRM канал лотереї не знайдено.');
+        return;
+    }
+
+    const settings = await getLotterySettings();
+    const embed = await createLotteryCrmEmbed();
+    const buttons = createLotteryCrmButtons();
+
+    if (settings?.lotteryCrmMessageId) {
+        const oldMessage = await channel.messages.fetch(settings.lotteryCrmMessageId).catch(() => null);
+
+        if (oldMessage) {
+            await oldMessage.edit({ embeds: [embed], components: buttons });
+            console.log('CRM панель лотереї оновлено.');
+            return;
+        }
+    }
+
+    const message = await channel.send({
+        embeds: [embed],
+        components: buttons
+    });
+
+    await updateLotterySettings({
+        lotteryCrmMessageId: message.id
+    });
+
+    console.log('CRM панель лотереї створено.');
+}
+
+async function updateLotteryCrmPanel() {
+    await ensureLotteryCrmPanel();
+}
+
 const commands = [
     new SlashCommandBuilder().setName('total_plus').setDescription('Поповнення сейфу'),
     new SlashCommandBuilder().setName('total_minus').setDescription('Зняття коштів'),
@@ -1926,205 +2126,7 @@ async function canRunLottery() {
 
     return balance >= settings.minPrize;
 }
-
-            async function createLotteryPanelEmbed() {
-    const settings = await getLotterySettings();
-    const tickets = await getAllLotteryTickets();
-
-    const totalTickets = tickets.reduce((sum, item) => sum + (item.tickets || 0), 0);
-    const participants = tickets.filter(item => item.tickets > 0).length;
-
-    const prizeText = settings.prizeType === 'money'
-        ? `💰 Випадкова сума від **${formatMoney(settings.minPrize)}** до **${formatMoney(settings.maxPrize)}**`
-        : `🎁 **${settings.manualPrizeName || 'Ручний приз'}**\n${settings.manualPrizeDescription || 'Опис не вказано.'}`;
-
-    return new EmbedBuilder()
-        .setColor(0xd4af37)
-        .setTitle('🎰 HOFFMAN WEEKLY LOTTERY')
-        .setDescription(
-            `🏛 Щотижневий розіграш серед учасників Hoffman Family.\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `📅 **Розіграш:** щонеділі о 21:00\n\n` +
-            `🎁 **Приз цього тижня:**\n${prizeText}\n\n` +
-            `🎟 **Як отримати квитки:**\n` +
-            `1 виконаний квест = 1 квиток\n` +
-            `Якщо квест виконували разом — кожен учасник отримує по 1 квитку.\n\n` +
-            `📊 **Учасників цього тижня:** ${participants}\n` +
-            `🎟 **Загальна кількість квитків:** ${totalTickets}\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `Чим більше активності — тим більше шансів на перемогу.`
-        )
-        .setFooter({ text: 'Hoffman Family • Weekly Lottery' })
-        .setTimestamp();
-}
-
-function createLotteryPanelButtons() {
-    return new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('lottery_my_tickets')
-            .setLabel('Мої квитки')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('🎟'),
-
-        new ButtonBuilder()
-            .setCustomId('lottery_table')
-            .setLabel('Таблиця')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📊'),
-
-        new ButtonBuilder()
-            .setCustomId('lottery_history')
-            .setLabel('Історія')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🏆')
-    );
-}
-
-async function ensureLotteryPanel() {
-    const channel = await client.channels.fetch(LOTTERY_CHANNEL_ID).catch(() => null);
-    if (!channel) {
-        console.log('Канал лотереї не знайдено.');
-        return;
-    }
-
-    const settings = await getLotterySettings();
-    const embed = await createLotteryPanelEmbed();
-    const buttons = createLotteryPanelButtons();
-
-    if (settings?.lotteryPanelMessageId) {
-        const oldMessage = await channel.messages.fetch(settings.lotteryPanelMessageId).catch(() => null);
-
-        if (oldMessage) {
-            await oldMessage.edit({ embeds: [embed], components: [buttons] });
-            console.log('Панель лотереї оновлено.');
-            return;
-        }
-    }
-
-    const message = await channel.send({
-        embeds: [embed],
-        components: [buttons]
-    });
-
-    await updateLotterySettings({
-        lotteryPanelMessageId: message.id
-    });
-
-    console.log('Панель лотереї створено.');
-}
-
-async function updateLotteryPanel() {
-    await ensureLotteryPanel();
-}
-
-async function createLotteryCrmEmbed() {
-    const settings = await getLotterySettings();
-    const tickets = await getAllLotteryTickets();
-
-    const totalTickets = tickets.reduce((sum, item) => sum + (item.tickets || 0), 0);
-    const participants = tickets.filter(item => item.tickets > 0).length;
-
-    const prizeText = settings.prizeType === 'money'
-        ? `💰 ${formatMoney(settings.minPrize)} — ${formatMoney(settings.maxPrize)}`
-        : `🎁 ${settings.manualPrizeName || 'Ручний приз'}\n${settings.manualPrizeDescription || 'Опис не вказано.'}`;
-
-    return new EmbedBuilder()
-        .setColor(0xd4af37)
-        .setTitle('🎰 HOFFMAN LOTTERY CRM')
-        .setDescription(
-            `⚙️ **Статус:** ${settings.enabled ? 'Увімкнено' : 'Вимкнено'}\n` +
-            `📅 **Авто-розіграш:** щонеділі о 21:00\n\n` +
-            `🎁 **Активний приз:**\n${prizeText}\n\n` +
-            `👥 **Учасників:** ${participants}\n` +
-            `🎟 **Квитків:** ${totalTickets}\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `CRM-панель доступна тільки керівництву Hoffman Family.`
-        )
-        .setFooter({ text: 'Hoffman Family • Lottery CRM' })
-        .setTimestamp();
-}
-
-function createLotteryCrmButtons() {
-    const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('lottery_run_now')
-            .setLabel('Провести зараз')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('▶️'),
-
-        new ButtonBuilder()
-            .setCustomId('lottery_set_money')
-            .setLabel('Грошовий приз')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('💰'),
-
-        new ButtonBuilder()
-            .setCustomId('lottery_set_manual_prize')
-            .setLabel('Ручний приз')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('🎁')
-    );
-
-    const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('lottery_add_ticket')
-            .setLabel('Видати квитки')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🎟'),
-
-        new ButtonBuilder()
-            .setCustomId('lottery_reset_tickets')
-            .setLabel('Скинути квитки')
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji('🗑'),
-
-        new ButtonBuilder()
-            .setCustomId('lottery_refresh')
-            .setLabel('Оновити')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🔁')
-    );
-
-    return [row1, row2];
-}
-
-async function ensureLotteryCrmPanel() {
-    const channel = await client.channels.fetch(LOTTERY_CRM_CHANNEL_ID).catch(() => null);
-    if (!channel) {
-        console.log('CRM канал лотереї не знайдено.');
-        return;
-    }
-
-    const settings = await getLotterySettings();
-    const embed = await createLotteryCrmEmbed();
-    const buttons = createLotteryCrmButtons();
-
-    if (settings?.lotteryCrmMessageId) {
-        const oldMessage = await channel.messages.fetch(settings.lotteryCrmMessageId).catch(() => null);
-
-        if (oldMessage) {
-            await oldMessage.edit({ embeds: [embed], components: buttons });
-            console.log('CRM панель лотереї оновлено.');
-            return;
-        }
-    }
-
-    const message = await channel.send({
-        embeds: [embed],
-        components: buttons
-    });
-
-    await updateLotterySettings({
-        lotteryCrmMessageId: message.id
-    });
-
-    console.log('CRM панель лотереї створено.');
-}
-
-async function updateLotteryCrmPanel() {
-    await ensureLotteryCrmPanel();
-}
-                        
+         
             if (interaction.customId === 'hoffman_application') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
