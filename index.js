@@ -738,7 +738,7 @@ const quest = await questDefinitions.findOne({ key: questKey });
     const userName = interaction.member?.displayName || interaction.user.username;
 
     const message = await channel.send({
-        embeds: [createQuestRunningEmbed(quest, interaction.user.id, userName, note)],
+        embeds: [createQuestRunningEmbed(quest, interaction.user.id, userName, note, uniqueQuestMembers)],
         components: [createQuestButtons(quest.key, interaction.user.id)]
     });
 
@@ -811,6 +811,9 @@ async function completeOrCancelQuest(interaction, completed) {
         rewardMembers.map(id => `• <@${id}> → +1 квиток`).join('\n'),
         0xffd700
     );
+
+    await updateLotteryPanel();
+    await updateLotteryCrmPanel();
 }
     
     await questStates.updateOne(
@@ -1267,6 +1270,83 @@ async function checkBirthdays() {
             0xd4af37
         );
     }
+}
+
+function getRandomPrize(min, max, step = 100000) {
+    const count = Math.floor((max - min) / step) + 1;
+    return min + Math.floor(Math.random() * count) * step;
+}
+
+async function addLotteryTicket(userId, amount = 1) {
+    await lotteryTickets.updateOne(
+        { userId },
+        {
+            $inc: {
+                tickets: amount
+            }
+        },
+        { upsert: true }
+    );
+}
+
+async function getLotteryTickets(userId) {
+    const data = await lotteryTickets.findOne({ userId });
+
+    return data?.tickets || 0;
+}
+
+async function resetLotteryTickets() {
+    await lotteryTickets.deleteMany({});
+}
+
+async function getAllLotteryTickets() {
+    return await lotteryTickets.find({}).toArray();
+}
+
+async function getLotterySettings() {
+    return await lotterySettings.findOne({
+        name: 'weekly_lottery'
+    });
+}
+
+async function updateLotterySettings(data) {
+    await lotterySettings.updateOne(
+        { name: 'weekly_lottery' },
+        {
+            $set: data
+        }
+    );
+}
+
+async function saveLotteryHistory(data) {
+    await lotteryHistory.insertOne({
+        ...data,
+        createdAt: new Date()
+    });
+}
+
+function pickLotteryWinner(entries) {
+    const pool = [];
+
+    for (const entry of entries) {
+        for (let i = 0; i < entry.tickets; i++) {
+            pool.push(entry.userId);
+        }
+    }
+
+    if (!pool.length) return null;
+
+    return pool[Math.floor(Math.random() * pool.length)];
+}
+
+async function canRunLottery() {
+    const settings = await getLotterySettings();
+
+    const balanceData = await balances.findOne({ name: 'safe' });
+
+    const balance = balanceData?.balance || 0;
+
+    return balance >= settings.minPrize;
 }
 
 async function createLotteryPanelEmbed() {
@@ -2048,83 +2128,6 @@ client.on('interactionCreate', async interaction => {
                 });
             }
 
-            function getRandomPrize(min, max, step = 100000) {
-    const count = Math.floor((max - min) / step) + 1;
-    return min + Math.floor(Math.random() * count) * step;
-}
-
-async function addLotteryTicket(userId, amount = 1) {
-    await lotteryTickets.updateOne(
-        { userId },
-        {
-            $inc: {
-                tickets: amount
-            }
-        },
-        { upsert: true }
-    );
-}
-
-async function getLotteryTickets(userId) {
-    const data = await lotteryTickets.findOne({ userId });
-
-    return data?.tickets || 0;
-}
-
-async function resetLotteryTickets() {
-    await lotteryTickets.deleteMany({});
-}
-
-async function getAllLotteryTickets() {
-    return await lotteryTickets.find({}).toArray();
-}
-
-async function getLotterySettings() {
-    return await lotterySettings.findOne({
-        name: 'weekly_lottery'
-    });
-}
-
-async function updateLotterySettings(data) {
-    await lotterySettings.updateOne(
-        { name: 'weekly_lottery' },
-        {
-            $set: data
-        }
-    );
-}
-
-async function saveLotteryHistory(data) {
-    await lotteryHistory.insertOne({
-        ...data,
-        createdAt: new Date()
-    });
-}
-
-function pickLotteryWinner(entries) {
-    const pool = [];
-
-    for (const entry of entries) {
-        for (let i = 0; i < entry.tickets; i++) {
-            pool.push(entry.userId);
-        }
-    }
-
-    if (!pool.length) return null;
-
-    return pool[Math.floor(Math.random() * pool.length)];
-}
-
-async function canRunLottery() {
-    const settings = await getLotterySettings();
-
-    const balanceData = await balances.findOne({ name: 'safe' });
-
-    const balance = balanceData?.balance || 0;
-
-    return balance >= settings.minPrize;
-}
-         
             if (interaction.customId === 'hoffman_application') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
