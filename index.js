@@ -20,8 +20,6 @@ const { MongoClient } = require('mongodb');
 const http = require('http');
 
 const TOKEN = process.env.TOKEN;
-const LOTTERY_CHANNEL_ID = '1513486880488816640';
-const LOTTERY_CRM_CHANNEL_ID = '1513487657190166538';
 const MONGODB_URI = process.env.MONGODB_URI;
 const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID;
 const QUEST_CHANNEL_ID = process.env.QUEST_CHANNEL_ID;
@@ -30,6 +28,9 @@ const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 
 const BIRTHDAY_CHANNEL_ID = '1495990457904140428';
 const BIRTHDAY_NEWS_CHANNEL_ID = '1495989840930672721';
+
+const LOTTERY_CHANNEL_ID = '1513486880488816640';
+const LOTTERY_CRM_CHANNEL_ID = '1513487657190166538';
 
 const CLIENT_ID = '1501160094006771812';
 const GUILD_ID = '1495987963887227031';
@@ -57,15 +58,15 @@ const client = new Client({
     intents: [GatewayIntentBits.Guilds]
 });
 
-let lotteryTickets;
-let lotterySettings;
-let lotteryHistory;
 let balances;
 let dailyStats;
 let botSettings;
 let questDefinitions;
 let questStates;
 let birthdays;
+let lotteryTickets;
+let lotterySettings;
+let lotteryHistory;
 
 const commandCooldowns = new Map();
 const pendingWithdrawals = new Map();
@@ -171,16 +172,15 @@ async function connectDB() {
     balances = db.collection('balances');
     dailyStats = db.collection('daily_stats');
     botSettings = db.collection('bot_settings');
-    lotteryTickets = db.collection('lottery_tickets');
-    lotterySettings = db.collection('lottery_settings');
-    lotteryHistory = db.collection('lottery_history');
     questDefinitions = db.collection('quest_definitions');
     questStates = db.collection('quest_states');
     birthdays = db.collection('birthdays');
+    lotteryTickets = db.collection('lottery_tickets');
+    lotterySettings = db.collection('lottery_settings');
+    lotteryHistory = db.collection('lottery_history');
 
     await birthdays.createIndex({ nameLower: 1 }, { unique: true });
-
-     await lotteryTickets.createIndex({ userId: 1 }, { unique: true });
+    await lotteryTickets.createIndex({ userId: 1 }, { unique: true });
 
     await lotterySettings.updateOne(
         { name: 'weekly_lottery' },
@@ -624,11 +624,7 @@ async function getQuestChannel() {
     return await client.channels.fetch(QUEST_CHANNEL_ID).catch(() => null);
 }
 
-function createQuestRunningEmbed(quest, userId, userName, note, members = []) {
-    const membersText = members.length
-        ? members.map(member => `<@${member.id}>`).join('\n')
-        : `<@${userId}>`;
-
+function createQuestRunningEmbed(quest, userId, userName, note, participants = []) {
     return new EmbedBuilder()
         .setColor(0xd4af37)
         .setTitle('🧩 Hoffman Quest System')
@@ -636,9 +632,8 @@ function createQuestRunningEmbed(quest, userId, userName, note, members = []) {
             `📌 **Квест:** ${quest.name}\n\n` +
             `👤 **Почав виконання:** <@${userId}>\n` +
             `📝 **Імʼя:** ${userName}\n\n` +
-            `👥 **Учасники квесту:**\n${membersText}\n\n` +
+            `👥 **Учасники:** ${participants.length ? participants.map(p => p.mention).join(', ') : `<@${userId}>`}\n\n` +
             `💰 **Нагорода:** \`${formatMoney(quest.reward)}\`\n` +
-            `🎟 **Квитки:** +1 кожному учаснику після виконання\n` +
             `🔄 **Статус:** Виконується\n\n` +
             `🗒 **Примітка:** ${note || '—'}\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -682,22 +677,10 @@ function createDisabledQuestButtons() {
 }
 
 async function startQuest(interaction) {
-const questKey = interaction.options.getString('quest');
-const note = interaction.options.getString('note') || '—';
+    const questKey = interaction.options.getString('quest');
+    const note = interaction.options.getString('note') || '—';
 
-const questMembers = [
-    interaction.user,
-    interaction.options.getUser('member1'),
-    interaction.options.getUser('member2'),
-    interaction.options.getUser('member3'),
-    interaction.options.getUser('member4')
-].filter(Boolean);
-
-const uniqueQuestMembers = [
-    ...new Map(questMembers.map(member => [member.id, member])).values()
-];
-
-const quest = await questDefinitions.findOne({ key: questKey });
+    const quest = await questDefinitions.findOne({ key: questKey });
 
     if (!quest) {
         return await interaction.reply({
@@ -736,9 +719,10 @@ const quest = await questDefinitions.findOne({ key: questKey });
     }
 
     const userName = interaction.member?.displayName || interaction.user.username;
+    const participants = getQuestParticipantsFromInteraction(interaction);
 
     const message = await channel.send({
-        embeds: [createQuestRunningEmbed(quest, interaction.user.id, userName, note, uniqueQuestMembers)],
+        embeds: [createQuestRunningEmbed(quest, interaction.user.id, userName, note, participants)],
         components: [createQuestButtons(quest.key, interaction.user.id)]
     });
 
@@ -750,7 +734,7 @@ const quest = await questDefinitions.findOne({ key: questKey });
                 status: 'running',
                 activeUserId: interaction.user.id,
                 activeUserName: userName,
-                members: uniqueQuestMembers.map(member => member.id),
+                participants,
                 messageId: message.id,
                 cooldownUntil: null,
                 reminder2hSent: false,
@@ -797,24 +781,19 @@ async function completeOrCancelQuest(interaction, completed) {
     let newBalance = await getBalance();
 
     if (completed) {
-    newBalance = await changeBalance(quest.reward);
-    await addDailyStat('plus', quest.reward);
+        newBalance = await changeBalance(quest.reward);
+        await addDailyStat('plus', quest.reward);
 
-    const rewardMembers = state.members || [interaction.user.id];
+        const participants = state.participants?.length
+            ? state.participants
+            : [{
+                id: interaction.user.id,
+                mention: `<@${interaction.user.id}>`,
+                name: interaction.member?.displayName || interaction.user.username
+            }];
 
-    for (const memberId of rewardMembers) {
-        await addLotteryTicket(memberId, 1);
+        await addLotteryTicketsForQuest(participants, quest.name);
     }
-
-    await logAction(
-        '🎟 Видано lottery квитки',
-        rewardMembers.map(id => `• <@${id}> → +1 квиток`).join('\n'),
-        0xffd700
-    );
-
-    await updateLotteryPanel();
-    await updateLotteryCrmPanel();
-}
     
     await questStates.updateOne(
         { key },
@@ -836,7 +815,8 @@ async function completeOrCancelQuest(interaction, completed) {
         .setTitle(completed ? '✅ КВЕСТ ВИКОНАНО' : '❌ КВЕСТ СКАСОВАНО')
         .setDescription(
             `📌 **Квест:** ${quest.name}\n\n` +
-            `👤 **Учасник:** <@${interaction.user.id}>\n\n` +
+            `👤 **Учасник:** <@${interaction.user.id}>\n` +
+            `👥 **Квитки отримали:** ${completed ? ((state.participants?.length ? state.participants : [{ mention: `<@${interaction.user.id}>` }]).map(p => p.mention).join(', ')) : '—'}\n\n` +
             `💰 **Нараховано в банк:** \`${completed ? formatMoney(quest.reward) : '$0'}\`\n` +
             `💰 **Баланс сейфу:** \`${formatMoney(newBalance)}\`\n\n` +
             `🔒 **Відкат:** ${quest.cooldownHours} годин\n` +
@@ -1272,109 +1252,159 @@ async function checkBirthdays() {
     }
 }
 
-function getRandomPrize(min, max, step = 100000) {
-    const count = Math.floor((max - min) / step) + 1;
-    return min + Math.floor(Math.random() * count) * step;
+
+function getKyivDayKey() {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Kyiv',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).format(new Date());
 }
 
-async function addLotteryTicket(userId, amount = 1) {
+function getKyivWeekdayNumber() {
+    const { day, month, year } = getKyivDayMonthYear();
+    return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).getUTCDay();
+}
+
+function randomPrizeAmount(min, max, step = 100000) {
+    const safeMin = Math.max(0, Number(min) || 0);
+    const safeMax = Math.max(safeMin, Number(max) || safeMin);
+    const safeStep = Math.max(1, Number(step) || 100000);
+    const count = Math.floor((safeMax - safeMin) / safeStep);
+    return safeMin + Math.floor(Math.random() * (count + 1)) * safeStep;
+}
+
+function uniqueParticipants(list) {
+    const seen = new Set();
+    const result = [];
+
+    for (const item of list) {
+        if (!item?.id || seen.has(item.id)) continue;
+        seen.add(item.id);
+        result.push(item);
+    }
+
+    return result;
+}
+
+function getQuestParticipantsFromInteraction(interaction) {
+    const participants = [{
+        id: interaction.user.id,
+        mention: `<@${interaction.user.id}>`,
+        name: interaction.member?.displayName || interaction.user.username
+    }];
+
+    for (let i = 1; i <= 4; i++) {
+        const user = interaction.options.getUser(`member${i}`);
+        const member = interaction.options.getMember(`member${i}`);
+
+        if (!user || user.bot) continue;
+
+        participants.push({
+            id: user.id,
+            mention: `<@${user.id}>`,
+            name: member?.displayName || user.username
+        });
+    }
+
+    return uniqueParticipants(participants);
+}
+
+async function getLotterySettings() {
+    let settings = await lotterySettings.findOne({ name: 'weekly_lottery' });
+
+    if (!settings) {
+        await lotterySettings.updateOne(
+            { name: 'weekly_lottery' },
+            {
+                $setOnInsert: {
+                    name: 'weekly_lottery',
+                    enabled: true,
+                    minPrize: 500000,
+                    maxPrize: 1000000,
+                    prizeStep: 100000,
+                    prizeType: 'money',
+                    manualPrizeName: null,
+                    manualPrizeDescription: null,
+                    lastAutoDrawDate: null,
+                    lotteryPanelMessageId: null,
+                    lotteryCrmMessageId: null
+                }
+            },
+            { upsert: true }
+        );
+
+        settings = await lotterySettings.findOne({ name: 'weekly_lottery' });
+    }
+
+    return settings;
+}
+
+async function getLotteryStats() {
+    const rows = await lotteryTickets.find({ weeklyTickets: { $gt: 0 } }).sort({ weeklyTickets: -1 }).toArray();
+    const totalTickets = rows.reduce((sum, item) => sum + (item.weeklyTickets || 0), 0);
+
+    return {
+        rows,
+        totalTickets,
+        participants: rows.length
+    };
+}
+
+async function addLotteryTicket(userId, userName, source, count = 1) {
     await lotteryTickets.updateOne(
         { userId },
         {
-            $inc: {
-                tickets: amount
-            }
+            $set: { userId, userName, updatedAt: Date.now() },
+            $inc: { weeklyTickets: count, totalTickets: count },
+            $push: { history: { source, count, date: Date.now() } }
         },
         { upsert: true }
     );
 }
 
-async function getLotteryTickets(userId) {
-    const data = await lotteryTickets.findOne({ userId });
-
-    return data?.tickets || 0;
-}
-
-async function resetLotteryTickets() {
-    await lotteryTickets.deleteMany({});
-}
-
-async function getAllLotteryTickets() {
-    return await lotteryTickets.find({}).toArray();
-}
-
-async function getLotterySettings() {
-    return await lotterySettings.findOne({
-        name: 'weekly_lottery'
-    });
-}
-
-async function updateLotterySettings(data) {
-    await lotterySettings.updateOne(
-        { name: 'weekly_lottery' },
-        {
-            $set: data
-        }
-    );
-}
-
-async function saveLotteryHistory(data) {
-    await lotteryHistory.insertOne({
-        ...data,
-        createdAt: new Date()
-    });
-}
-
-function pickLotteryWinner(entries) {
-    const pool = [];
-
-    for (const entry of entries) {
-        for (let i = 0; i < entry.tickets; i++) {
-            pool.push(entry.userId);
-        }
+async function addLotteryTicketsForQuest(participants, questName) {
+    for (const participant of participants) {
+        await addLotteryTicket(participant.id, participant.name, `Квест: ${questName}`, 1);
     }
 
-    if (!pool.length) return null;
+    await logAction(
+        '🎟 Видано квитки лотереї',
+        participants.map(p => `${p.mention} — **+1 квиток**`).join('\n') + `\n\n📌 Джерело: **${questName}**`,
+        0xd4af37
+    );
 
-    return pool[Math.floor(Math.random() * pool.length)];
+    await updateLotteryPanels();
 }
 
-async function canRunLottery() {
-    const settings = await getLotterySettings();
+function getLotteryPrizeText(settings) {
+    if (settings.prizeType === 'manual') {
+        return `🎁 **${settings.manualPrizeName || 'Ручний приз'}**\n${settings.manualPrizeDescription || 'Опис не вказано.'}`;
+    }
 
-    const balanceData = await balances.findOne({ name: 'safe' });
-
-    const balance = balanceData?.balance || 0;
-
-    return balance >= settings.minPrize;
+    return `💰 **Випадкова сума:** ${formatMoney(settings.minPrize)} – ${formatMoney(settings.maxPrize)}`;
 }
 
 async function createLotteryPanelEmbed() {
     const settings = await getLotterySettings();
-    const tickets = await getAllLotteryTickets();
-
-    const totalTickets = tickets.reduce((sum, item) => sum + (item.tickets || 0), 0);
-    const participants = tickets.filter(item => item.tickets > 0).length;
-
-    const prizeText = settings.prizeType === 'money'
-        ? `💰 Випадкова сума від **${formatMoney(settings.minPrize)}** до **${formatMoney(settings.maxPrize)}**`
-        : `🎁 **${settings.manualPrizeName || 'Ручний приз'}**\n${settings.manualPrizeDescription || 'Опис не вказано.'}`;
+    const stats = await getLotteryStats();
 
     return new EmbedBuilder()
         .setColor(0xd4af37)
         .setTitle('🎰 HOFFMAN WEEKLY LOTTERY')
         .setDescription(
-            `🏛 Щотижневий розіграш серед учасників Hoffman Family.\n\n` +
+            `🏛 **Щотижневий розіграш серед учасників Hoffman Family**\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `📅 **Розіграш:** щонеділі о 21:00\n\n` +
-            `🎁 **Приз цього тижня:**\n${prizeText}\n\n` +
+            `📅 **Розіграш:** щонеділі о **21:00**\n` +
+            `🎁 **Приз тижня:**\n${getLotteryPrizeText(settings)}\n\n` +
             `🎟 **Як отримати квитки:**\n` +
-            `1 виконаний квест = 1 квиток\n` +
+            `1 виконаний квест = **1 квиток**\n` +
             `Якщо квест виконували разом — кожен учасник отримує по 1 квитку.\n\n` +
-            `📊 **Учасників цього тижня:** ${participants}\n` +
-            `🎟 **Загальна кількість квитків:** ${totalTickets}\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `Чим більше активності — тим більше шансів на перемогу.`
+            `👥 **Учасників цього тижня:** ${stats.participants}\n` +
+            `🎟 **Квитків у розіграші:** ${stats.totalTickets}\n\n` +
+            `Натисніть кнопку нижче, щоб перевірити свої квитки.`
         )
         .setFooter({ text: 'Hoffman Family • Weekly Lottery' })
         .setTimestamp();
@@ -1382,30 +1412,16 @@ async function createLotteryPanelEmbed() {
 
 function createLotteryPanelButtons() {
     return new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('lottery_my_tickets')
-            .setLabel('Мої квитки')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('🎟'),
-
-        new ButtonBuilder()
-            .setCustomId('lottery_table')
-            .setLabel('Таблиця')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📊'),
-
-        new ButtonBuilder()
-            .setCustomId('lottery_history')
-            .setLabel('Історія')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🏆')
+        new ButtonBuilder().setCustomId('lottery_my_tickets').setLabel('Мої квитки').setStyle(ButtonStyle.Primary).setEmoji('🎟'),
+        new ButtonBuilder().setCustomId('lottery_participants').setLabel('Учасники').setStyle(ButtonStyle.Secondary).setEmoji('📊'),
+        new ButtonBuilder().setCustomId('lottery_history').setLabel('Переможці').setStyle(ButtonStyle.Secondary).setEmoji('🏆')
     );
 }
 
 async function ensureLotteryPanel() {
     const channel = await client.channels.fetch(LOTTERY_CHANNEL_ID).catch(() => null);
     if (!channel) {
-        console.log('Канал лотереї не знайдено.');
+        console.log('Канал розіграшів не знайдено.');
         return;
     }
 
@@ -1423,44 +1439,40 @@ async function ensureLotteryPanel() {
         }
     }
 
-    const message = await channel.send({
-        embeds: [embed],
-        components: [buttons]
-    });
+    const message = await channel.send({ embeds: [embed], components: [buttons] });
 
-    await updateLotterySettings({
-        lotteryPanelMessageId: message.id
-    });
+    await lotterySettings.updateOne(
+        { name: 'weekly_lottery' },
+        { $set: { lotteryPanelMessageId: message.id } },
+        { upsert: true }
+    );
 
     console.log('Панель лотереї створено.');
 }
 
-async function updateLotteryPanel() {
-    await ensureLotteryPanel();
-}
-
 async function createLotteryCrmEmbed() {
     const settings = await getLotterySettings();
-    const tickets = await getAllLotteryTickets();
-
-    const totalTickets = tickets.reduce((sum, item) => sum + (item.tickets || 0), 0);
-    const participants = tickets.filter(item => item.tickets > 0).length;
-
-    const prizeText = settings.prizeType === 'money'
-        ? `💰 ${formatMoney(settings.minPrize)} — ${formatMoney(settings.maxPrize)}`
-        : `🎁 ${settings.manualPrizeName || 'Ручний приз'}\n${settings.manualPrizeDescription || 'Опис не вказано.'}`;
+    const stats = await getLotteryStats();
+    const balance = await getBalance();
 
     return new EmbedBuilder()
         .setColor(0xd4af37)
         .setTitle('🎰 HOFFMAN LOTTERY CRM')
         .setDescription(
-            `⚙️ **Статус:** ${settings.enabled ? 'Увімкнено' : 'Вимкнено'}\n` +
-            `📅 **Авто-розіграш:** щонеділі о 21:00\n\n` +
-            `🎁 **Активний приз:**\n${prizeText}\n\n` +
-            `👥 **Учасників:** ${participants}\n` +
-            `🎟 **Квитків:** ${totalTickets}\n\n` +
+            `🏛 **Панель керування щотижневим розіграшем**\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `CRM-панель доступна тільки керівництву Hoffman Family.`
+            `📌 **Статус:** ${settings.enabled ? '🟢 Увімкнено' : '🔴 Вимкнено'}\n` +
+            `📅 **Авторозіграш:** щонеділі о **21:00**\n` +
+            `🎁 **Активний приз:**\n${getLotteryPrizeText(settings)}\n\n` +
+            `👥 **Учасників:** ${stats.participants}\n` +
+            `🎟 **Квитків:** ${stats.totalTickets}\n` +
+            `💰 **Баланс банку:** ${formatMoney(balance)}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `▶️ Провести зараз — запустити розіграш вручну\n` +
+            `🎁 Додати приз — авто / предмет / статус\n` +
+            `💰 Грошовий приз — налаштувати мін/макс\n` +
+            `🎟 Видати квитки — додати квитки вручну\n` +
+            `🗑 Скинути — очистити квитки цього тижня`
         )
         .setFooter({ text: 'Hoffman Family • Lottery CRM' })
         .setTimestamp();
@@ -1468,43 +1480,15 @@ async function createLotteryCrmEmbed() {
 
 function createLotteryCrmButtons() {
     const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('lottery_run_now')
-            .setLabel('Провести зараз')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('▶️'),
-
-        new ButtonBuilder()
-            .setCustomId('lottery_set_money')
-            .setLabel('Грошовий приз')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('💰'),
-
-        new ButtonBuilder()
-            .setCustomId('lottery_set_manual_prize')
-            .setLabel('Ручний приз')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('🎁')
+        new ButtonBuilder().setCustomId('lottery_admin_run').setLabel('Провести зараз').setStyle(ButtonStyle.Success).setEmoji('▶️'),
+        new ButtonBuilder().setCustomId('lottery_admin_money').setLabel('Грошовий приз').setStyle(ButtonStyle.Primary).setEmoji('💰'),
+        new ButtonBuilder().setCustomId('lottery_admin_prize').setLabel('Додати приз').setStyle(ButtonStyle.Primary).setEmoji('🎁')
     );
 
     const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('lottery_add_ticket')
-            .setLabel('Видати квитки')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🎟'),
-
-        new ButtonBuilder()
-            .setCustomId('lottery_reset_tickets')
-            .setLabel('Скинути квитки')
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji('🗑'),
-
-        new ButtonBuilder()
-            .setCustomId('lottery_refresh')
-            .setLabel('Оновити')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🔁')
+        new ButtonBuilder().setCustomId('lottery_admin_add_tickets').setLabel('Видати квитки').setStyle(ButtonStyle.Secondary).setEmoji('🎟'),
+        new ButtonBuilder().setCustomId('lottery_admin_stats').setLabel('Статистика').setStyle(ButtonStyle.Secondary).setEmoji('📊'),
+        new ButtonBuilder().setCustomId('lottery_admin_reset').setLabel('Скинути квитки').setStyle(ButtonStyle.Danger).setEmoji('🗑')
     );
 
     return [row1, row2];
@@ -1531,21 +1515,347 @@ async function ensureLotteryCrmPanel() {
         }
     }
 
-    const message = await channel.send({
-        embeds: [embed],
-        components: buttons
-    });
+    const message = await channel.send({ embeds: [embed], components: buttons });
 
-    await updateLotterySettings({
-        lotteryCrmMessageId: message.id
-    });
+    await lotterySettings.updateOne(
+        { name: 'weekly_lottery' },
+        { $set: { lotteryCrmMessageId: message.id } },
+        { upsert: true }
+    );
 
     console.log('CRM панель лотереї створено.');
 }
 
-async function updateLotteryCrmPanel() {
+async function updateLotteryPanels() {
+    await ensureLotteryPanel();
     await ensureLotteryCrmPanel();
 }
+
+function pickWeightedWinner(rows) {
+    const pool = [];
+
+    for (const row of rows) {
+        for (let i = 0; i < (row.weeklyTickets || 0); i++) {
+            pool.push(row);
+        }
+    }
+
+    if (!pool.length) return null;
+
+    return pool[Math.floor(Math.random() * pool.length)];
+}
+
+async function runLotteryDraw(triggeredBy = 'auto') {
+    const settings = await getLotterySettings();
+
+    if (!settings.enabled) {
+        return { ok: false, message: '🔴 Лотерея зараз вимкнена.' };
+    }
+
+    const stats = await getLotteryStats();
+
+    if (!stats.totalTickets || !stats.rows.length) {
+        const channel = await client.channels.fetch(LOTTERY_CHANNEL_ID).catch(() => null);
+        if (channel) {
+            await channel.send({
+                embeds: [new EmbedBuilder()
+                    .setColor(0xffcc00)
+                    .setTitle('🎰 HOFFMAN WEEKLY LOTTERY')
+                    .setDescription(`Цього тижня розіграш не відбувся.\n\nПричина: немає учасників з квитками.\n\n🎟 Нагадування: **1 виконаний квест = 1 квиток**.`)
+                    .setFooter({ text: 'Hoffman Family • Weekly Lottery' })
+                    .setTimestamp()]
+            });
+        }
+        return { ok: false, message: 'Немає учасників з квитками.' };
+    }
+
+    const winner = pickWeightedWinner(stats.rows);
+    if (!winner) return { ok: false, message: 'Не вдалося обрати переможця.' };
+
+    let prizeAmount = 0;
+    let prizeText = '';
+
+    if (settings.prizeType === 'manual') {
+        prizeText = `🎁 ${settings.manualPrizeName || 'Ручний приз'}`;
+        if (settings.manualPrizeDescription) prizeText += `\n${settings.manualPrizeDescription}`;
+    } else {
+        prizeAmount = randomPrizeAmount(settings.minPrize, settings.maxPrize, settings.prizeStep);
+        const balance = await getBalance();
+
+        if (balance < prizeAmount) {
+            const channel = await client.channels.fetch(LOTTERY_CHANNEL_ID).catch(() => null);
+            if (channel) {
+                await channel.send({
+                    embeds: [new EmbedBuilder()
+                        .setColor(0xff3333)
+                        .setTitle('⚠️ HOFFMAN WEEKLY LOTTERY')
+                        .setDescription(
+                            `Цієї неділі розіграш не було проведено.\n\n` +
+                            `Причина: у сімейному банку недостатньо коштів для призового фонду.\n\n` +
+                            `💰 **Поточний баланс:** ${formatMoney(balance)}\n` +
+                            `🎁 **Необхідно для призу:** ${formatMoney(prizeAmount)}\n\n` +
+                            `Квитки учасників збережено до наступного розіграшу.`
+                        )
+                        .setFooter({ text: 'Hoffman Family • Weekly Lottery' })
+                        .setTimestamp()]
+                });
+            }
+
+            await logAction(
+                '⚠️ Лотерею не проведено',
+                `Недостатньо коштів у банку.\nБаланс: **${formatMoney(balance)}**\nПотрібно: **${formatMoney(prizeAmount)}**`,
+                0xff3333
+            );
+
+            return { ok: false, message: 'Недостатньо коштів у банку.' };
+        }
+
+        await changeBalance(-prizeAmount);
+        await addDailyStat('minus', prizeAmount);
+        prizeText = `💰 ${formatMoney(prizeAmount)}`;
+    }
+
+    const channel = await client.channels.fetch(LOTTERY_CHANNEL_ID).catch(() => null);
+
+    if (channel) {
+        await channel.send({
+            embeds: [new EmbedBuilder()
+                .setColor(0xd4af37)
+                .setTitle('🎰 HOFFMAN WEEKLY LOTTERY')
+                .setDescription(
+                    `⚙️ Розіграш завершено.\n\n` +
+                    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                    `🏆 **Переможець:** <@${winner.userId}>\n` +
+                    `🎟 **Квитків переможця:** ${winner.weeklyTickets || 0}\n` +
+                    `🎟 **Загальна кількість квитків:** ${stats.totalTickets}\n\n` +
+                    `🎁 **Приз:**\n${prizeText}\n\n` +
+                    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                    `${settings.prizeType === 'money' ? '💰 Кошти автоматично списано з сімейного банку.\n' : '📌 Приз потрібно видати вручну.\n'}` +
+                    `🎟 Квитки обнулено для нового тижня.`
+                )
+                .setFooter({ text: 'Hoffman Family • Weekly Lottery' })
+                .setTimestamp()]
+        });
+    }
+
+    await lotteryHistory.insertOne({
+        winnerId: winner.userId,
+        winnerName: winner.userName,
+        winnerTickets: winner.weeklyTickets || 0,
+        totalTickets: stats.totalTickets,
+        participants: stats.participants,
+        prizeType: settings.prizeType,
+        prizeAmount,
+        prizeName: settings.manualPrizeName,
+        prizeDescription: settings.manualPrizeDescription,
+        triggeredBy,
+        date: Date.now()
+    });
+
+    await lotteryTickets.updateMany({}, { $set: { weeklyTickets: 0 } });
+
+    if (settings.prizeType === 'manual') {
+        await lotterySettings.updateOne(
+            { name: 'weekly_lottery' },
+            { $set: { prizeType: 'money', manualPrizeName: null, manualPrizeDescription: null } }
+        );
+    }
+
+    await logAction(
+        '🏆 Проведено розіграш',
+        `Переможець: <@${winner.userId}>\nКвитків: **${winner.weeklyTickets || 0}**\nПриз: **${prizeText.replace(/\n/g, ' ')}**\nЗапуск: **${triggeredBy}**`,
+        0xd4af37
+    );
+
+    await updateLotteryPanels();
+
+    return { ok: true, message: `Переможець: ${winner.userName}. Приз: ${prizeText}` };
+}
+
+async function checkLotteryAutoDraw() {
+    const { hour, minute } = getKyivTime();
+    const weekday = getKyivWeekdayNumber();
+    const today = getKyivDayKey();
+
+    if (weekday !== 0 || hour !== 21 || minute > 5) return;
+
+    const settings = await getLotterySettings();
+    if (settings.lastAutoDrawDate === today) return;
+
+    await lotterySettings.updateOne(
+        { name: 'weekly_lottery' },
+        { $set: { lastAutoDrawDate: today } }
+    );
+
+    await runLotteryDraw('auto');
+}
+
+async function showMyLotteryTickets(interaction) {
+    if (!hasFamilyAccess(interaction.member)) {
+        return await interaction.reply({ content: '❌ Перегляд квитків доступний тільки учасникам Hoffman Family.', flags: MessageFlags.Ephemeral });
+    }
+
+    const data = await lotteryTickets.findOne({ userId: interaction.user.id });
+
+    return await interaction.reply({
+        content:
+            `🎟 **Ваші квитки Hoffman Weekly Lottery**\n\n` +
+            `Квитків цього тижня: **${data?.weeklyTickets || 0}**\n` +
+            `Квитків за весь час: **${data?.totalTickets || 0}**`,
+        flags: MessageFlags.Ephemeral
+    });
+}
+
+async function showLotteryParticipants(interaction, ephemeral = true) {
+    const stats = await getLotteryStats();
+    const text = stats.rows.length
+        ? stats.rows.slice(0, 15).map((item, index) => `${index + 1}. <@${item.userId}> — **${item.weeklyTickets || 0}** квит.`).join('\n')
+        : 'Поки що немає учасників з квитками.';
+
+    return await interaction.reply({
+        embeds: [new EmbedBuilder()
+            .setColor(0xd4af37)
+            .setTitle('📊 Учасники Hoffman Weekly Lottery')
+            .setDescription(`${text}\n\n━━━━━━━━━━━━━━━━━━━━\n👥 Учасників: **${stats.participants}**\n🎟 Квитків: **${stats.totalTickets}**`)
+            .setFooter({ text: 'Hoffman Family • Weekly Lottery' })
+            .setTimestamp()],
+        flags: ephemeral ? MessageFlags.Ephemeral : undefined
+    });
+}
+
+async function showLotteryHistory(interaction) {
+    const rows = await lotteryHistory.find({}).sort({ date: -1 }).limit(10).toArray();
+    const text = rows.length
+        ? rows.map((item, index) => {
+            const date = getKyivDateTime(item.date);
+            const prize = item.prizeType === 'money' ? formatMoney(item.prizeAmount) : `${item.prizeName || 'Ручний приз'}`;
+            return `${index + 1}. **${date}** — <@${item.winnerId}> — ${prize}`;
+        }).join('\n')
+        : 'Історія розіграшів поки що порожня.';
+
+    return await interaction.reply({
+        embeds: [new EmbedBuilder()
+            .setColor(0xd4af37)
+            .setTitle('🏆 Історія переможців Hoffman Lottery')
+            .setDescription(text)
+            .setFooter({ text: 'Hoffman Family • Weekly Lottery' })
+            .setTimestamp()],
+        flags: MessageFlags.Ephemeral
+    });
+}
+
+async function openLotteryMoneyModal(interaction) {
+    if (!hasReviewAccess(interaction.member)) {
+        return await interaction.reply({ content: '❌ Доступ тільки для 9/10 рангу.', flags: MessageFlags.Ephemeral });
+    }
+
+    const modal = new ModalBuilder().setCustomId('lottery_money_modal').setTitle('Грошовий приз лотереї');
+
+    const minInput = new TextInputBuilder()
+        .setCustomId('lottery_min_prize')
+        .setLabel('Мінімальна сума')
+        .setPlaceholder('500000')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const maxInput = new TextInputBuilder()
+        .setCustomId('lottery_max_prize')
+        .setLabel('Максимальна сума')
+        .setPlaceholder('1000000')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(minInput),
+        new ActionRowBuilder().addComponents(maxInput)
+    );
+
+    return await interaction.showModal(modal);
+}
+
+async function openLotteryManualPrizeModal(interaction) {
+    if (!hasReviewAccess(interaction.member)) {
+        return await interaction.reply({ content: '❌ Доступ тільки для 9/10 рангу.', flags: MessageFlags.Ephemeral });
+    }
+
+    const modal = new ModalBuilder().setCustomId('lottery_manual_prize_modal').setTitle('Додати ручний приз');
+
+    const nameInput = new TextInputBuilder()
+        .setCustomId('lottery_prize_name')
+        .setLabel('Назва призу')
+        .setPlaceholder('Наприклад: Ford Raptor / Rare Case / Lucky Member')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const descriptionInput = new TextInputBuilder()
+        .setCustomId('lottery_prize_description')
+        .setLabel('Опис призу')
+        .setPlaceholder('Наприклад: користування 3 дні або 2 предмети')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(false);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(nameInput),
+        new ActionRowBuilder().addComponents(descriptionInput)
+    );
+
+    return await interaction.showModal(modal);
+}
+
+async function openLotteryAddTicketsModal(interaction) {
+    if (!hasReviewAccess(interaction.member)) {
+        return await interaction.reply({ content: '❌ Доступ тільки для 9/10 рангу.', flags: MessageFlags.Ephemeral });
+    }
+
+    const modal = new ModalBuilder().setCustomId('lottery_add_tickets_modal').setTitle('Видати квитки вручну');
+
+    const userInput = new TextInputBuilder()
+        .setCustomId('lottery_user_id')
+        .setLabel('ID користувача')
+        .setPlaceholder('Встав Discord ID користувача')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const countInput = new TextInputBuilder()
+        .setCustomId('lottery_ticket_count')
+        .setLabel('Кількість квитків')
+        .setPlaceholder('1')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const reasonInput = new TextInputBuilder()
+        .setCustomId('lottery_ticket_reason')
+        .setLabel('Причина')
+        .setPlaceholder('За допомогу сімʼї')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(false);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(userInput),
+        new ActionRowBuilder().addComponents(countInput),
+        new ActionRowBuilder().addComponents(reasonInput)
+    );
+
+    return await interaction.showModal(modal);
+}
+
+async function resetLotteryTickets(interaction) {
+    if (!hasReviewAccess(interaction.member)) {
+        return await interaction.reply({ content: '❌ Доступ тільки для 9/10 рангу.', flags: MessageFlags.Ephemeral });
+    }
+
+    await lotteryTickets.updateMany({}, { $set: { weeklyTickets: 0 } });
+    await updateLotteryPanels();
+
+    await logAction(
+        '🗑 Квитки лотереї скинуто',
+        `Скинув: **${interaction.member.displayName}**`,
+        0xff3333
+    );
+
+    return await interaction.reply({ content: '✅ Квитки поточного тижня скинуто.', flags: MessageFlags.Ephemeral });
+}
+
 
 const commands = [
     new SlashCommandBuilder().setName('total_plus').setDescription('Поповнення сейфу'),
@@ -1554,27 +1864,27 @@ const commands = [
     new SlashCommandBuilder().setName('report').setDescription('Відправити звіт вручну'),
     new SlashCommandBuilder().setName('apply').setDescription('Подати заявку до сімʼї Hoffman'),
 
-new SlashCommandBuilder()
-    .setName('quests')
-    .setDescription('Почати виконання квесту')
-    .addStringOption(option =>
-        option.setName('quest').setDescription('Оберіть квест').setRequired(true).setAutocomplete(true)
-    )
-    .addUserOption(option =>
-        option.setName('member1').setDescription('Співучасник 1').setRequired(false)
-    )
-    .addUserOption(option =>
-        option.setName('member2').setDescription('Співучасник 2').setRequired(false)
-    )
-    .addUserOption(option =>
-        option.setName('member3').setDescription('Співучасник 3').setRequired(false)
-    )
-    .addUserOption(option =>
-        option.setName('member4').setDescription('Співучасник 4').setRequired(false)
-    )
-    .addStringOption(option =>
-        option.setName('note').setDescription('Примітка').setRequired(false)
-    ),
+    new SlashCommandBuilder()
+        .setName('quests')
+        .setDescription('Почати виконання квесту')
+        .addStringOption(option =>
+            option.setName('quest').setDescription('Оберіть квест').setRequired(true).setAutocomplete(true)
+        )
+        .addStringOption(option =>
+            option.setName('note').setDescription('Примітка').setRequired(false)
+        )
+        .addUserOption(option =>
+            option.setName('member1').setDescription('Співучасник 1').setRequired(false)
+        )
+        .addUserOption(option =>
+            option.setName('member2').setDescription('Співучасник 2').setRequired(false)
+        )
+        .addUserOption(option =>
+            option.setName('member3').setDescription('Співучасник 3').setRequired(false)
+        )
+        .addUserOption(option =>
+            option.setName('member4').setDescription('Співучасник 4').setRequired(false)
+        ),
 
     new SlashCommandBuilder().setName('quest_status').setDescription('Показати статус усіх квестів'),
 
@@ -1629,6 +1939,10 @@ client.once(Events.ClientReady, async () => {
 
         setInterval(async () => {
             await checkBirthdays();
+        }, 60000);
+
+        setInterval(async () => {
+            await checkLotteryAutoDraw();
         }, 60000);
 
     } catch (error) {
@@ -1754,92 +2068,7 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isButton()) {
-              if (interaction.customId === 'lottery_my_tickets') {
-            const tickets = await getLotteryTickets(interaction.user.id);
-
-            return await interaction.reply({
-                content:
-                    `🎟 У вас зараз **${tickets}** lottery квитків.\n\n` +
-                    `🧩 1 виконаний квест = 1 квиток.`,
-                flags: MessageFlags.Ephemeral
-            });
-        }
-
-        if (interaction.customId === 'lottery_table') {
-            const entries = await getAllLotteryTickets();
-
-            if (!entries.length) {
-                return await interaction.reply({
-                    content: '❌ Зараз ще немає учасників лотереї.',
-                    flags: MessageFlags.Ephemeral
-                });
-            }
-
-            const sorted = entries
-                .sort((a, b) => b.tickets - a.tickets)
-                .slice(0, 10);
-
-            const text = sorted
-                .map((entry, index) =>
-                    `**${index + 1}.** <@${entry.userId}> — 🎟 ${entry.tickets}`
-                )
-                .join('\n');
-
-            return await interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor(0xd4af37)
-                        .setTitle('📊 Hoffman Lottery Leaderboard')
-                        .setDescription(text)
-                        .setFooter({
-                            text: 'Hoffman Family • Weekly Lottery'
-                        })
-                        .setTimestamp()
-                ],
-                flags: MessageFlags.Ephemeral
-            });
-        }
-
-        if (interaction.customId === 'lottery_history') {
-            const history = await lotteryHistory
-                .find({})
-                .sort({ createdAt: -1 })
-                .limit(10)
-                .toArray();
-
-            if (!history.length) {
-                return await interaction.reply({
-                    content: '❌ Історія розіграшів поки порожня.',
-                    flags: MessageFlags.Ephemeral
-                });
-            }
-
-            const text = history
-                .map((item, index) => {
-                    const prize =
-                        item.prizeType === 'money'
-                            ? `💰 ${formatMoney(item.amount)}`
-                            : `🎁 ${item.prizeName}`;
-
-                    return `**${index + 1}.** <@${item.userId}> — ${prize}`;
-                })
-                .join('\n');
-
-            return await interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor(0xd4af37)
-                        .setTitle('🏆 Історія Hoffman Lottery')
-                        .setDescription(text)
-                        .setFooter({
-                            text: 'Hoffman Family • Weekly Lottery'
-                        })
-                        .setTimestamp()
-                ],
-                flags: MessageFlags.Ephemeral
-            });
-        }
-                         if (interaction.customId === 'get_guest_role') {
+             if (interaction.customId === 'get_guest_role') {
                 if (interaction.member.roles.cache.has(GUEST_ROLE_ID)) {
                     return await interaction.reply({
                         content: 'ℹ️ У вас вже є роль **Гість**.',
@@ -1888,6 +2117,48 @@ client.on('interactionCreate', async interaction => {
 
             if (interaction.customId === 'birthday_remove') {
                 return await openBirthdayRemoveModal(interaction);
+            }
+
+            if (interaction.customId === 'lottery_my_tickets') {
+                return await showMyLotteryTickets(interaction);
+            }
+
+            if (interaction.customId === 'lottery_participants') {
+                return await showLotteryParticipants(interaction, true);
+            }
+
+            if (interaction.customId === 'lottery_history') {
+                return await showLotteryHistory(interaction);
+            }
+
+            if (interaction.customId === 'lottery_admin_run') {
+                if (!hasReviewAccess(interaction.member)) {
+                    return await interaction.reply({ content: '❌ Доступ тільки для 9/10 рангу.', flags: MessageFlags.Ephemeral });
+                }
+
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const result = await runLotteryDraw(`manual:${interaction.user.id}`);
+                return await interaction.editReply({ content: result.ok ? `✅ ${result.message}` : `⚠️ ${result.message}` });
+            }
+
+            if (interaction.customId === 'lottery_admin_money') {
+                return await openLotteryMoneyModal(interaction);
+            }
+
+            if (interaction.customId === 'lottery_admin_prize') {
+                return await openLotteryManualPrizeModal(interaction);
+            }
+
+            if (interaction.customId === 'lottery_admin_add_tickets') {
+                return await openLotteryAddTicketsModal(interaction);
+            }
+
+            if (interaction.customId === 'lottery_admin_stats') {
+                return await showLotteryParticipants(interaction, true);
+            }
+
+            if (interaction.customId === 'lottery_admin_reset') {
+                return await resetLotteryTickets(interaction);
             }
 
             if (interaction.customId.startsWith('withdraw_confirm:')) {
@@ -2126,6 +2397,110 @@ client.on('interactionCreate', async interaction => {
                 return await interaction.editReply({
                     content: `✅ День народження видалено: **${name}**`
                 });
+            }
+
+            if (interaction.customId === 'lottery_money_modal') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                if (!hasReviewAccess(interaction.member)) {
+                    return await interaction.editReply({ content: '❌ Доступ тільки для 9/10 рангу.' });
+                }
+
+                const minPrize = parseInt(interaction.fields.getTextInputValue('lottery_min_prize').replace(/\D/g, ''));
+                const maxPrize = parseInt(interaction.fields.getTextInputValue('lottery_max_prize').replace(/\D/g, ''));
+
+                if (!minPrize || !maxPrize || minPrize <= 0 || maxPrize < minPrize) {
+                    return await interaction.editReply({ content: '❌ Невірно вказано суми. Максимальна сума має бути більшою або рівною мінімальній.' });
+                }
+
+                await lotterySettings.updateOne(
+                    { name: 'weekly_lottery' },
+                    {
+                        $set: {
+                            prizeType: 'money',
+                            minPrize,
+                            maxPrize,
+                            manualPrizeName: null,
+                            manualPrizeDescription: null,
+                            updatedAt: Date.now()
+                        }
+                    },
+                    { upsert: true }
+                );
+
+                await updateLotteryPanels();
+
+                await logAction(
+                    '💰 Приз лотереї змінено',
+                    `Тип: **Гроші**\nМін: **${formatMoney(minPrize)}**\nМакс: **${formatMoney(maxPrize)}**\nЗмінив: **${interaction.member.displayName}**`,
+                    0xd4af37
+                );
+
+                return await interaction.editReply({ content: `✅ Грошовий приз встановлено: **${formatMoney(minPrize)} – ${formatMoney(maxPrize)}**` });
+            }
+
+            if (interaction.customId === 'lottery_manual_prize_modal') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                if (!hasReviewAccess(interaction.member)) {
+                    return await interaction.editReply({ content: '❌ Доступ тільки для 9/10 рангу.' });
+                }
+
+                const prizeName = interaction.fields.getTextInputValue('lottery_prize_name').trim();
+                const prizeDescription = interaction.fields.getTextInputValue('lottery_prize_description')?.trim() || 'Опис не вказано.';
+
+                await lotterySettings.updateOne(
+                    { name: 'weekly_lottery' },
+                    {
+                        $set: {
+                            prizeType: 'manual',
+                            manualPrizeName: prizeName,
+                            manualPrizeDescription: prizeDescription,
+                            updatedAt: Date.now()
+                        }
+                    },
+                    { upsert: true }
+                );
+
+                await updateLotteryPanels();
+
+                await logAction(
+                    '🎁 Ручний приз лотереї встановлено',
+                    `Приз: **${prizeName}**\nОпис: ${prizeDescription}\nДодав: **${interaction.member.displayName}**`,
+                    0xd4af37
+                );
+
+                return await interaction.editReply({ content: `✅ Ручний приз встановлено: **${prizeName}**` });
+            }
+
+            if (interaction.customId === 'lottery_add_tickets_modal') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                if (!hasReviewAccess(interaction.member)) {
+                    return await interaction.editReply({ content: '❌ Доступ тільки для 9/10 рангу.' });
+                }
+
+                const userId = interaction.fields.getTextInputValue('lottery_user_id').replace(/\D/g, '');
+                const count = parseInt(interaction.fields.getTextInputValue('lottery_ticket_count').replace(/\D/g, ''));
+                const reason = interaction.fields.getTextInputValue('lottery_ticket_reason') || 'Ручне нарахування';
+
+                if (!userId || !count || count <= 0) {
+                    return await interaction.editReply({ content: '❌ Невірний ID користувача або кількість квитків.' });
+                }
+
+                const member = await interaction.guild.members.fetch(userId).catch(() => null);
+                const userName = member?.displayName || `User ${userId}`;
+
+                await addLotteryTicket(userId, userName, reason, count);
+                await updateLotteryPanels();
+
+                await logAction(
+                    '🎟 Квитки видано вручну',
+                    `Користувач: <@${userId}>\nКількість: **${count}**\nПричина: ${reason}\nВидав: **${interaction.member.displayName}**`,
+                    0xd4af37
+                );
+
+                return await interaction.editReply({ content: `✅ Видано **${count}** квит. для <@${userId}>.` });
             }
 
             if (interaction.customId === 'hoffman_application') {
