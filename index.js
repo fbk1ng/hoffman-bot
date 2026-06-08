@@ -758,7 +758,9 @@ async function startQuest(interaction) {
 }
 
 async function completeOrCancelQuest(interaction, completed) {
-    const [_, key, starterId] = interaction.customId.split(':');
+    const parts = interaction.customId.split(':');
+    const key = parts[1];
+    const starterId = parts[2];
 
     if (interaction.user.id !== starterId) {
         return await interaction.reply({
@@ -770,31 +772,75 @@ async function completeOrCancelQuest(interaction, completed) {
     const quest = await questDefinitions.findOne({ key });
     const state = await questStates.findOne({ key });
 
-    if (!quest || !state || state.status !== 'running') {
+    if (!quest || !state) {
+        return await interaction.reply({
+            content: '❌ Цей квест не знайдено в базі.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    // Якщо квест уже перейшов у cooldown, але старе повідомлення ще показує кнопки,
+    // просто оновлюємо повідомлення і НЕ нараховуємо гроші/квитки повторно.
+    if (state.status !== 'running') {
+        if (state.status === 'cooldown' && state.cooldownUntil) {
+            const balance = await getBalance();
+            const wasCompleted = Boolean(state.completed);
+            const participants = state.participants?.length
+                ? state.participants
+                : [{
+                    mention: `<@${state.activeUserId || interaction.user.id}>`
+                }];
+
+            const embed = new EmbedBuilder()
+                .setColor(wasCompleted ? 0x00ff88 : 0xff3333)
+                .setTitle(wasCompleted ? '✅ КВЕСТ ВЖЕ ВИКОНАНО' : '❌ КВЕСТ ВЖЕ СКАСОВАНО')
+                .setDescription(
+                    `📌 **Квест:** ${quest.name}\n\n` +
+                    `👤 **Починав:** <@${state.activeUserId || interaction.user.id}>\n` +
+                    `👥 **Учасники:** ${participants.map(p => p.mention).join(', ')}\n\n` +
+                    `💰 **Баланс сейфу:** \`${formatMoney(balance)}\`\n\n` +
+                    `🔒 **Відкат:** ${quest.cooldownHours} годин\n` +
+                    `✅ **Наступна доступність:** ${getKyivDateTime(state.cooldownUntil)}\n\n` +
+                    `ℹ️ Це повідомлення було оновлено без повторного нарахування.`
+                )
+                .setFooter({ text: 'Hoffman Family • Quest Already Processed' })
+                .setTimestamp();
+
+            return await interaction.update({
+                embeds: [embed],
+                components: [createDisabledQuestButtons()]
+            });
+        }
+
         return await interaction.reply({
             content: '❌ Цей квест вже не перебуває у виконанні.',
             flags: MessageFlags.Ephemeral
         });
     }
 
+    // Важливо: одразу підтверджуємо натискання кнопки.
+    // Інакше Discord може встигнути закрити interaction, поки бот рахує квитки,
+    // оновлює банк, логи та панелі. Через це Mongo вже ставив cooldown,
+    // а саме повідомлення квесту залишалось старим.
+    await interaction.deferUpdate();
+
     const cooldownUntil = Date.now() + quest.cooldownHours * 60 * 60 * 1000;
     let newBalance = await getBalance();
+
+    const participants = state.participants?.length
+        ? state.participants
+        : [{
+            id: interaction.user.id,
+            mention: `<@${interaction.user.id}>`,
+            name: interaction.member?.displayName || interaction.user.username
+        }];
 
     if (completed) {
         newBalance = await changeBalance(quest.reward);
         await addDailyStat('plus', quest.reward);
-
-        const participants = state.participants?.length
-            ? state.participants
-            : [{
-                id: interaction.user.id,
-                mention: `<@${interaction.user.id}>`,
-                name: interaction.member?.displayName || interaction.user.username
-            }];
-
         await addLotteryTicketsForQuest(participants, quest.name);
     }
-    
+
     await questStates.updateOne(
         { key },
         {
@@ -816,7 +862,7 @@ async function completeOrCancelQuest(interaction, completed) {
         .setDescription(
             `📌 **Квест:** ${quest.name}\n\n` +
             `👤 **Учасник:** <@${interaction.user.id}>\n` +
-            `👥 **Квитки отримали:** ${completed ? ((state.participants?.length ? state.participants : [{ mention: `<@${interaction.user.id}>` }]).map(p => p.mention).join(', ')) : '—'}\n\n` +
+            `👥 **Квитки отримали:** ${completed ? participants.map(p => p.mention).join(', ') : '—'}\n\n` +
             `💰 **Нараховано в банк:** \`${completed ? formatMoney(quest.reward) : '$0'}\`\n` +
             `💰 **Баланс сейфу:** \`${formatMoney(newBalance)}\`\n\n` +
             `🔒 **Відкат:** ${quest.cooldownHours} годин\n` +
@@ -827,11 +873,11 @@ async function completeOrCancelQuest(interaction, completed) {
 
     await logAction(
         completed ? '✅ Квест виконано' : '❌ Квест скасовано',
-        `📌 Квест: **${quest.name}**\n👤 Учасник: <@${interaction.user.id}>\n💰 Нараховано: **${completed ? formatMoney(quest.reward) : '$0'}**\n🔒 Наступна доступність: **${getKyivDateTime(cooldownUntil)}**`,
+        `📌 Квест: **${quest.name}**\n👤 Учасник: <@${interaction.user.id}>\n💰 Нараховано: **${completed ? formatMoney(quest.reward) : '$0'}**\n🎟 Квитки: **${completed ? participants.length : 0}**\n🔒 Наступна доступність: **${getKyivDateTime(cooldownUntil)}**`,
         completed ? 0x00ff88 : 0xff3333
     );
 
-    await interaction.update({
+    await interaction.message.edit({
         embeds: [embed],
         components: [createDisabledQuestButtons()]
     });
@@ -2685,3 +2731,4 @@ http.createServer((req, res) => {
 }).listen(process.env.PORT || 3000, () => {
     console.log('Web server запущений для Render');
 });
+
