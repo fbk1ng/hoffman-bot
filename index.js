@@ -1269,8 +1269,6 @@ async function checkBirthdays() {
     }
 }
 
-}
-
 async function createLotteryPanelEmbed() {
     const settings = await getLotterySettings();
     const tickets = await getAllLotteryTickets();
