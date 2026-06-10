@@ -1537,7 +1537,21 @@ function createLotteryCrmButtons() {
         new ButtonBuilder().setCustomId('lottery_admin_reset').setLabel('Скинути квитки').setStyle(ButtonStyle.Danger).setEmoji('🗑')
     );
 
-    return [row1, row2];
+    const row3 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('lottery_admin_enable')
+            .setLabel('Увімкнути')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('🟢'),
+
+        new ButtonBuilder()
+            .setCustomId('lottery_admin_disable')
+            .setLabel('Вимкнути')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('🔴')
+    );
+    
+    return [row1, row2, row3];
 }
 
 async function ensureLotteryCrmPanel() {
@@ -2186,6 +2200,62 @@ client.on('interactionCreate', async interaction => {
                 const result = await runLotteryDraw(`manual:${interaction.user.id}`);
                 return await interaction.editReply({ content: result.ok ? `✅ ${result.message}` : `⚠️ ${result.message}` });
             }
+
+            if (interaction.customId === 'lottery_admin_enable') {
+    if (!hasReviewAccess(interaction.member)) {
+        return await interaction.reply({
+            content: '❌ Доступ тільки для 9/10 рангу.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    await lotterySettings.updateOne(
+        { name: 'weekly_lottery' },
+        { $set: { enabled: true } },
+        { upsert: true }
+    );
+
+    await updateLotteryPanels();
+
+    await logAction(
+        '🟢 Лотерею увімкнено',
+        `Увімкнув: **${interaction.member.displayName}**`,
+        0x00ff88
+    );
+
+    return await interaction.reply({
+        content: '🟢 Лотерею увімкнено.',
+        flags: MessageFlags.Ephemeral
+    });
+}
+
+if (interaction.customId === 'lottery_admin_disable') {
+    if (!hasReviewAccess(interaction.member)) {
+        return await interaction.reply({
+            content: '❌ Доступ тільки для 9/10 рангу.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    await lotterySettings.updateOne(
+        { name: 'weekly_lottery' },
+        { $set: { enabled: false } },
+        { upsert: true }
+    );
+
+    await updateLotteryPanels();
+
+    await logAction(
+        '🔴 Лотерею вимкнено',
+        `Вимкнув: **${interaction.member.displayName}**`,
+        0xff3333
+    );
+
+    return await interaction.reply({
+        content: '🔴 Лотерею вимкнено.',
+        flags: MessageFlags.Ephemeral
+    });
+}
 
             if (interaction.customId === 'lottery_admin_money') {
                 return await openLotteryMoneyModal(interaction);
