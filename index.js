@@ -30,6 +30,7 @@ const BIRTHDAY_CHANNEL_ID = '1495990457904140428';
 const BIRTHDAY_NEWS_CHANNEL_ID = '1495989840930672721';
 
 const LOTTERY_CHANNEL_ID = '1513486880488816640';
+const LOTTERY_RESULTS_CHANNEL_ID = '1515961352684830770';
 const LOTTERY_CRM_CHANNEL_ID = '1513487657190166538';
 
 const CLIENT_ID = '1501160094006771812';
@@ -1465,7 +1466,7 @@ function createLotteryPanelButtons() {
 }
 
 async function ensureLotteryPanel() {
-    const channel = await client.channels.fetch(LOTTERY_CHANNEL_ID).catch(() => null);
+    const channel = await client.channels.fetch(LOTTERY_RESULTS_CHANNEL_ID).catch(() => null);
     if (!channel) {
         console.log('Канал розіграшів не знайдено.');
         return;
@@ -2801,4 +2802,3 @@ http.createServer((req, res) => {
 }).listen(process.env.PORT || 3000, () => {
     console.log('Web server запущений для Render');
 });
-
