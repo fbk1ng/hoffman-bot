@@ -16,7 +16,7 @@ const {
     ButtonStyle
 } = require('discord.js');
 
-const { MongoClient } = require('mongodb');
+const { MongoClient, ObjectId } = require('mongodb');
 const http = require('http');
 
 const TOKEN = process.env.TOKEN;
@@ -32,6 +32,9 @@ const BIRTHDAY_NEWS_CHANNEL_ID = '1495989840930672721';
 const LOTTERY_CHANNEL_ID = '1513486880488816640';
 const LOTTERY_RESULTS_CHANNEL_ID = '1515961352684830770';
 const LOTTERY_CRM_CHANNEL_ID = '1513487657190166538';
+
+const DAILY_TASKS_CHANNEL_ID = '1515963037306060881';
+const DAILY_TASKS_REVIEW_CHANNEL_ID = '1515963471550746664';
 
 const CLIENT_ID = '1501160094006771812';
 const GUILD_ID = '1495987963887227031';
@@ -55,6 +58,49 @@ const DEFAULT_QUESTS = [
     { key: 'myslyvskyi_sezon', name: 'Мисливський сезон', reward: 500000, cooldownHours: 24 }
 ];
 
+const DEFAULT_DAILY_TASKS = [
+    // Easy tasks — +1 ticket
+    { key: 'easy_advertise_family', difficulty: 'easy', rewardTickets: 1, text: 'Зробити рекламу сімʼї будь-яким способом' },
+    { key: 'easy_invite_person', difficulty: 'easy', rewardTickets: 1, text: 'Запросити нову людину' },
+    { key: 'easy_help_member', difficulty: 'easy', rewardTickets: 1, text: 'Допомогти учаснику сімʼї у грі' },
+    { key: 'easy_repair_vehicle', difficulty: 'easy', rewardTickets: 1, text: 'Відремонтувати всі вузли на одному автомобілі' },
+    { key: 'easy_chip_to_safe', difficulty: 'easy', rewardTickets: 1, text: 'Покласти одну із частин мікросхеми або мікросхему до сейфу' },
+    { key: 'easy_help_newbie_join', difficulty: 'easy', rewardTickets: 1, text: 'Допомогти новачку та запропонувати приєднатись до сімʼї' },
+    { key: 'easy_family_screenshot', difficulty: 'easy', rewardTickets: 1, text: 'Зробити гарний скріншот із сімʼєю або членом сімʼї у грі' },
+    { key: 'easy_join_activity', difficulty: 'easy', rewardTickets: 1, text: 'Взяти участь у будь-якій активності сімʼї' },
+    { key: 'easy_complete_family_quest', difficulty: 'easy', rewardTickets: 1, text: 'Виконати будь-який сімейний квест' },
+    { key: 'easy_evening_online', difficulty: 'easy', rewardTickets: 1, text: 'Підтримати онлайн сімʼї у вечірній час' },
+    { key: 'easy_house_photo', difficulty: 'easy', rewardTickets: 1, text: 'Зробити гарне фото на фоні сімейного будинку або подвірʼя' },
+    { key: 'easy_hug_member', difficulty: 'easy', rewardTickets: 1, text: 'Обійняти будь-якого члена сімʼї' },
+    { key: 'easy_family_contribution_10k', difficulty: 'easy', rewardTickets: 1, text: 'Зробити вклад в сімʼю від 10.000$' },
+
+    // Medium tasks — +2 tickets
+    { key: 'medium_two_quests_day', difficulty: 'medium', rewardTickets: 2, text: 'Виконати 2 квести за день' },
+    { key: 'medium_help_recruitment', difficulty: 'medium', rewardTickets: 2, text: 'Допомогти провести набір у сімʼю' },
+    { key: 'medium_active_recruit', difficulty: 'medium', rewardTickets: 2, text: 'Привести нового активного учасника' },
+    { key: 'medium_small_activity', difficulty: 'medium', rewardTickets: 2, text: 'Організувати невелику активність для сімʼї' },
+    { key: 'medium_transport_logistics', difficulty: 'medium', rewardTickets: 2, text: 'Допомогти із транспортом або логістикою сімʼї' },
+    { key: 'medium_two_hours_online', difficulty: 'medium', rewardTickets: 2, text: 'Провести мінімум 2 години онлайн із сімʼєю' },
+    { key: 'medium_team_hard_quest', difficulty: 'medium', rewardTickets: 2, text: 'Закрити складний квест разом із командою' },
+    { key: 'medium_ad_series', difficulty: 'medium', rewardTickets: 2, text: 'Зробити серію реклам сімʼї, більше двох' },
+    { key: 'medium_family_contribution_20k', difficulty: 'medium', rewardTickets: 2, text: 'Зробити вклад в сімʼю від 20.000$' },
+    { key: 'medium_group_trip', difficulty: 'medium', rewardTickets: 2, text: 'Організувати спільний виїзд або захід' },
+    { key: 'medium_leadership_task', difficulty: 'medium', rewardTickets: 2, text: 'Виконати завдання від керівництва' },
+
+    // Hard tasks — +3 tickets
+    { key: 'hard_full_recruitment', difficulty: 'hard', rewardTickets: 3, text: 'Провести повноцінний набір у сімʼю через оголошення в новини: “Сімʼя Hoffman шукає далеких родичів, очікуємо біля будинку №347”' },
+    { key: 'hard_family_contribution_50k', difficulty: 'hard', rewardTickets: 3, text: 'Зробити вклад в сімʼю від 50.000$' },
+    { key: 'hard_convoy_trip', difficulty: 'hard', rewardTickets: 3, text: 'Організувати сімейний конвой або виїзд' },
+    { key: 'hard_multiple_quests', difficulty: 'hard', rewardTickets: 3, text: 'Закрити кілька квестів поспіль' },
+    { key: 'hard_full_staff_activity', difficulty: 'hard', rewardTickets: 3, text: 'Організувати активність для всього складу' },
+    { key: 'hard_important_help', difficulty: 'hard', rewardTickets: 3, text: 'Провести важливу допомогу сімʼї' },
+    { key: 'hard_big_rp_team', difficulty: 'hard', rewardTickets: 3, text: 'Зібрати команду для великого RP' },
+    { key: 'hard_newbie_adaptation', difficulty: 'hard', rewardTickets: 3, text: 'Допомогти новачкам адаптуватись у сімʼї' },
+    { key: 'hard_leadership_order', difficulty: 'hard', rewardTickets: 3, text: 'Виконати важке доручення керівництва' },
+    { key: 'hard_evening_activity', difficulty: 'hard', rewardTickets: 3, text: 'Організувати вечірню активність сімʼї' },
+    { key: 'hard_complex_rp', difficulty: 'hard', rewardTickets: 3, text: 'Взяти участь у складній RP ситуації' }
+];
+
 const client = new Client({
     intents: [GatewayIntentBits.Guilds]
 });
@@ -68,6 +114,9 @@ let birthdays;
 let lotteryTickets;
 let lotterySettings;
 let lotteryHistory;
+let dailyTasksPool;
+let dailyTaskSubmissions;
+let dailyTaskSettings;
 
 const commandCooldowns = new Map();
 const pendingWithdrawals = new Map();
@@ -179,9 +228,14 @@ async function connectDB() {
     lotteryTickets = db.collection('lottery_tickets');
     lotterySettings = db.collection('lottery_settings');
     lotteryHistory = db.collection('lottery_history');
+    dailyTasksPool = db.collection('daily_tasks_pool');
+    dailyTaskSubmissions = db.collection('daily_task_submissions');
+    dailyTaskSettings = db.collection('daily_task_settings');
 
     await birthdays.createIndex({ nameLower: 1 }, { unique: true });
     await lotteryTickets.createIndex({ userId: 1 }, { unique: true });
+    await dailyTasksPool.createIndex({ key: 1 }, { unique: true });
+    await dailyTaskSubmissions.createIndex({ date: 1, userId: 1, difficulty: 1 });
 
     await lotterySettings.updateOne(
         { name: 'weekly_lottery' },
@@ -212,6 +266,27 @@ async function connectDB() {
     await botSettings.updateOne(
         { name: 'bot_lock' },
         { $setOnInsert: { name: 'bot_lock', locked: false } },
+        { upsert: true }
+    );
+
+    for (const task of DEFAULT_DAILY_TASKS) {
+        await dailyTasksPool.updateOne(
+            { key: task.key },
+            { $setOnInsert: { ...task, enabled: true, createdAt: Date.now() } },
+            { upsert: true }
+        );
+    }
+
+    await dailyTaskSettings.updateOne(
+        { name: 'daily_tasks' },
+        {
+            $setOnInsert: {
+                name: 'daily_tasks',
+                panelMessageId: null,
+                currentDate: null,
+                activeTasks: null
+            }
+        },
         { upsert: true }
     );
 
@@ -1918,6 +1993,598 @@ async function resetLotteryTickets(interaction) {
 }
 
 
+function getDifficultyLabel(difficulty) {
+    if (difficulty === 'easy') return '🟢 Легке';
+    if (difficulty === 'medium') return '🟡 Середнє';
+    if (difficulty === 'hard') return '🔴 Складне';
+    return difficulty;
+}
+
+function getDifficultyReward(difficulty) {
+    if (difficulty === 'easy') return 1;
+    if (difficulty === 'medium') return 2;
+    if (difficulty === 'hard') return 3;
+    return 1;
+}
+
+function getDailyTaskButtonId(difficulty) {
+    return `daily_task_submit:${difficulty}`;
+}
+
+async function pickRandomDailyTask(difficulty) {
+    const tasks = await dailyTasksPool.find({ difficulty, enabled: true }).toArray();
+
+    if (!tasks.length) {
+        return {
+            key: `fallback_${difficulty}`,
+            difficulty,
+            rewardTickets: getDifficultyReward(difficulty),
+            text: 'Завдання не знайдено. Додайте завдання у пул.'
+        };
+    }
+
+    return tasks[Math.floor(Math.random() * tasks.length)];
+}
+
+async function getOrCreateDailySettings(forceNew = false) {
+    const today = getKyivDate();
+    let settings = await dailyTaskSettings.findOne({ name: 'daily_tasks' });
+
+    if (!settings || forceNew || settings.currentDate !== today || !settings.activeTasks) {
+        const easy = await pickRandomDailyTask('easy');
+        const medium = await pickRandomDailyTask('medium');
+        const hard = await pickRandomDailyTask('hard');
+
+        const activeTasks = {
+            easy: {
+                key: easy.key,
+                text: easy.text,
+                difficulty: 'easy',
+                rewardTickets: easy.rewardTickets || 1
+            },
+            medium: {
+                key: medium.key,
+                text: medium.text,
+                difficulty: 'medium',
+                rewardTickets: medium.rewardTickets || 2
+            },
+            hard: {
+                key: hard.key,
+                text: hard.text,
+                difficulty: 'hard',
+                rewardTickets: hard.rewardTickets || 3
+            }
+        };
+
+        await dailyTaskSettings.updateOne(
+            { name: 'daily_tasks' },
+            {
+                $set: {
+                    name: 'daily_tasks',
+                    currentDate: today,
+                    activeTasks,
+                    updatedAt: Date.now()
+                },
+                $setOnInsert: {
+                    panelMessageId: null
+                }
+            },
+            { upsert: true }
+        );
+
+        settings = await dailyTaskSettings.findOne({ name: 'daily_tasks' });
+    }
+
+    return settings;
+}
+
+async function getDailyTaskStats(date = getKyivDate()) {
+    const approved = await dailyTaskSubmissions.find({ date, status: 'approved' }).toArray();
+    const pending = await dailyTaskSubmissions.find({ date, status: 'pending' }).toArray();
+
+    const approvedByDifficulty = {
+        easy: approved.filter(item => item.difficulty === 'easy').length,
+        medium: approved.filter(item => item.difficulty === 'medium').length,
+        hard: approved.filter(item => item.difficulty === 'hard').length
+    };
+
+    return {
+        approved,
+        pending,
+        approvedByDifficulty,
+        approvedTotal: approved.length,
+        pendingTotal: pending.length
+    };
+}
+
+async function createDailyTasksPanelEmbed() {
+    const settings = await getOrCreateDailySettings();
+    const stats = await getDailyTaskStats(settings.currentDate);
+    const tasks = settings.activeTasks;
+
+    return new EmbedBuilder()
+        .setColor(0xd4af37)
+        .setTitle('📅 HOFFMAN DAILY TASKS')
+        .setDescription(
+            `🏛 **Щоденні завдання Hoffman Family**\n\n` +
+            `Виконуй завдання, кидай підтвердження та отримуй lottery-квитки після схвалення керівництвом.\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `🟢 **Легке завдання** — **+${tasks.easy.rewardTickets} ticket**\n` +
+            `${tasks.easy.text}\n` +
+            `✅ Схвалено сьогодні: **${stats.approvedByDifficulty.easy}**\n\n` +
+            `🟡 **Середнє завдання** — **+${tasks.medium.rewardTickets} tickets**\n` +
+            `${tasks.medium.text}\n` +
+            `✅ Схвалено сьогодні: **${stats.approvedByDifficulty.medium}**\n\n` +
+            `🔴 **Складне завдання** — **+${tasks.hard.rewardTickets} tickets**\n` +
+            `${tasks.hard.text}\n` +
+            `✅ Схвалено сьогодні: **${stats.approvedByDifficulty.hard}**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `📌 **Дата:** ${settings.currentDate}\n` +
+            `⏳ **На перевірці:** ${stats.pendingTotal}\n\n` +
+            `Натисни кнопку потрібного рівня, щоб подати виконання.`
+        )
+        .setFooter({ text: 'Hoffman Family • Daily Tasks' })
+        .setTimestamp();
+}
+
+function createDailyTasksPanelButtons() {
+    const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(getDailyTaskButtonId('easy'))
+            .setLabel('Виконати легке')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('🟢'),
+
+        new ButtonBuilder()
+            .setCustomId(getDailyTaskButtonId('medium'))
+            .setLabel('Виконати середнє')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('🟡'),
+
+        new ButtonBuilder()
+            .setCustomId(getDailyTaskButtonId('hard'))
+            .setLabel('Виконати складне')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('🔴')
+    );
+
+    const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('daily_task_my_progress')
+            .setLabel('Мої завдання')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('📊'),
+
+        new ButtonBuilder()
+            .setCustomId('daily_task_refresh')
+            .setLabel('Оновити')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🔁')
+    );
+
+    return [row1, row2];
+}
+
+async function ensureDailyTasksPanel(forceNewTasks = false) {
+    const channel = await client.channels.fetch(DAILY_TASKS_CHANNEL_ID).catch(() => null);
+    if (!channel) {
+        console.log('Канал щоденних завдань не знайдено.');
+        return;
+    }
+
+    const settings = await getOrCreateDailySettings(forceNewTasks);
+    const embed = await createDailyTasksPanelEmbed();
+    const buttons = createDailyTasksPanelButtons();
+
+    if (settings?.panelMessageId) {
+        const oldMessage = await channel.messages.fetch(settings.panelMessageId).catch(() => null);
+
+        if (oldMessage) {
+            await oldMessage.edit({
+                embeds: [embed],
+                components: buttons
+            });
+
+            console.log('Панель щоденних завдань оновлено.');
+            return;
+        }
+    }
+
+    const message = await channel.send({
+        embeds: [embed],
+        components: buttons
+    });
+
+    await dailyTaskSettings.updateOne(
+        { name: 'daily_tasks' },
+        { $set: { panelMessageId: message.id } },
+        { upsert: true }
+    );
+
+    console.log('Панель щоденних завдань створено.');
+}
+
+async function updateDailyTasksPanel() {
+    await ensureDailyTasksPanel(false);
+}
+
+async function checkDailyTasksRefresh() {
+    if (!dailyTaskSettings) return;
+
+    const { hour } = getKyivTime();
+    const today = getKyivDate();
+    const settings = await dailyTaskSettings.findOne({ name: 'daily_tasks' });
+
+    if (!settings || settings.currentDate !== today) {
+        if (hour >= 9) {
+            await ensureDailyTasksPanel(true);
+        }
+    }
+}
+
+async function openDailyTaskSubmitModal(interaction, difficulty) {
+    if (!hasFamilyAccess(interaction.member)) {
+        return await interaction.reply({
+            content: '❌ Щоденні завдання доступні тільки учасникам Hoffman Family.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const settings = await getOrCreateDailySettings();
+    const task = settings.activeTasks?.[difficulty];
+
+    if (!task) {
+        return await interaction.reply({
+            content: '❌ Завдання цього рівня зараз не знайдено.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const existing = await dailyTaskSubmissions.findOne({
+        date: settings.currentDate,
+        userId: interaction.user.id,
+        difficulty,
+        status: { $in: ['pending', 'approved'] }
+    });
+
+    if (existing?.status === 'approved') {
+        return await interaction.reply({
+            content: '✅ Це завдання за сьогодні вже зараховано.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    if (existing?.status === 'pending') {
+        return await interaction.reply({
+            content: '⏳ Це завдання вже на перевірці. Дочекайтесь рішення керівництва.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const modal = new ModalBuilder()
+        .setCustomId(`daily_task_submit_modal:${difficulty}`)
+        .setTitle(`${getDifficultyLabel(difficulty)} завдання`);
+
+    const proofInput = new TextInputBuilder()
+        .setCustomId('daily_task_proof')
+        .setLabel('Посилання на скріншот / доказ')
+        .setPlaceholder('Встав посилання на скріншот або відео')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true);
+
+    const commentInput = new TextInputBuilder()
+        .setCustomId('daily_task_comment')
+        .setLabel('Коментар')
+        .setPlaceholder('Коротко опиши, що саме зробив')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(false);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(proofInput),
+        new ActionRowBuilder().addComponents(commentInput)
+    );
+
+    return await interaction.showModal(modal);
+}
+
+async function handleDailyTaskSubmitModal(interaction, difficulty) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    if (!hasFamilyAccess(interaction.member)) {
+        return await interaction.editReply({
+            content: '❌ Щоденні завдання доступні тільки учасникам Hoffman Family.'
+        });
+    }
+
+    const settings = await getOrCreateDailySettings();
+    const task = settings.activeTasks?.[difficulty];
+
+    if (!task) {
+        return await interaction.editReply({
+            content: '❌ Завдання цього рівня зараз не знайдено.'
+        });
+    }
+
+    const existing = await dailyTaskSubmissions.findOne({
+        date: settings.currentDate,
+        userId: interaction.user.id,
+        difficulty,
+        status: { $in: ['pending', 'approved'] }
+    });
+
+    if (existing?.status === 'approved') {
+        return await interaction.editReply({
+            content: '✅ Це завдання за сьогодні вже зараховано.'
+        });
+    }
+
+    if (existing?.status === 'pending') {
+        return await interaction.editReply({
+            content: '⏳ Це завдання вже на перевірці.'
+        });
+    }
+
+    const proof = interaction.fields.getTextInputValue('daily_task_proof').trim();
+    const comment = interaction.fields.getTextInputValue('daily_task_comment')?.trim() || '—';
+
+    const submission = {
+        date: settings.currentDate,
+        userId: interaction.user.id,
+        userName: interaction.member?.displayName || interaction.user.username,
+        difficulty,
+        taskKey: task.key,
+        taskText: task.text,
+        rewardTickets: task.rewardTickets,
+        proof,
+        comment,
+        status: 'pending',
+        createdAt: Date.now()
+    };
+
+    const insertResult = await dailyTaskSubmissions.insertOne(submission);
+    const submissionId = insertResult.insertedId.toString();
+
+    const reviewChannel = await client.channels.fetch(DAILY_TASKS_REVIEW_CHANNEL_ID).catch(() => null);
+    if (!reviewChannel) {
+        return await interaction.editReply({
+            content: '❌ Канал перевірки щоденних завдань не знайдено.'
+        });
+    }
+
+    const embed = new EmbedBuilder()
+        .setColor(0xffcc00)
+        .setTitle('📋 Daily Task — на перевірку')
+        .setDescription(
+            `👤 **Учасник:** <@${interaction.user.id}>\n` +
+            `📅 **Дата:** ${settings.currentDate}\n\n` +
+            `${getDifficultyLabel(difficulty)}\n` +
+            `📌 **Завдання:** ${task.text}\n` +
+            `🎟 **Нагорода:** +${task.rewardTickets} ticket(s)\n\n` +
+            `📎 **Доказ:**\n${proof}\n\n` +
+            `📝 **Коментар:** ${comment}`
+        )
+        .setFooter({ text: `Submission ID: ${submissionId}` })
+        .setTimestamp();
+
+    const buttons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`daily_task_approve:${submissionId}`)
+            .setLabel('Схвалити')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('✅'),
+
+        new ButtonBuilder()
+            .setCustomId(`daily_task_reject:${submissionId}`)
+            .setLabel('Відхилити')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('❌')
+    );
+
+    await reviewChannel.send({
+        content: `<@&${RANK_9_ROLE_ID}> <@&${RANK_10_ROLE_ID}>`,
+        embeds: [embed],
+        components: [buttons]
+    });
+
+    await logAction(
+        '📋 Daily task подано',
+        `👤 Учасник: <@${interaction.user.id}>\n${getDifficultyLabel(difficulty)}\n📌 Завдання: **${task.text}**\n🎟 Нагорода: **+${task.rewardTickets}**`,
+        0xffcc00
+    );
+
+    await updateDailyTasksPanel();
+
+    return await interaction.editReply({
+        content: '✅ Завдання відправлено на перевірку керівництву.'
+    });
+}
+
+async function approveDailyTask(interaction, submissionId) {
+    if (!hasReviewAccess(interaction.member)) {
+        return await interaction.reply({
+            content: '❌ Схвалювати daily tasks можуть тільки 9/10 ранг.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const submission = await dailyTaskSubmissions.findOne({ _id: new ObjectId(submissionId) });
+
+    if (!submission) {
+        return await interaction.reply({
+            content: '❌ Заявку на завдання не знайдено.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    if (submission.status !== 'pending') {
+        return await interaction.reply({
+            content: `ℹ️ Це завдання вже оброблено. Статус: **${submission.status}**.`,
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    await dailyTaskSubmissions.updateOne(
+        { _id: submission._id },
+        {
+            $set: {
+                status: 'approved',
+                reviewedBy: interaction.member.displayName,
+                reviewedAt: Date.now()
+            }
+        }
+    );
+
+    await addLotteryTicket(
+        submission.userId,
+        submission.userName,
+        `Daily task: ${submission.taskText}`,
+        submission.rewardTickets
+    );
+
+    await updateLotteryPanels();
+    await updateDailyTasksPanel();
+
+    await logAction(
+        '✅ Daily task схвалено',
+        `👤 Учасник: <@${submission.userId}>\n📌 Завдання: **${submission.taskText}**\n🎟 Видано: **+${submission.rewardTickets}**\n🛡 Схвалив: **${interaction.member.displayName}**`,
+        0x00ff88
+    );
+
+    const oldEmbed = interaction.message.embeds[0];
+    const newEmbed = EmbedBuilder.from(oldEmbed)
+        .setColor(0x00ff88)
+        .addFields({
+            name: '✅ Статус',
+            value: `СХВАЛЕНО\nПеревірив: ${interaction.member.displayName}`
+        })
+        .setFooter({ text: 'Hoffman Family • Daily Task Approved' })
+        .setTimestamp();
+
+    const disabledButtons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('daily_task_approved_disabled')
+            .setLabel('Схвалено')
+            .setStyle(ButtonStyle.Success)
+            .setDisabled(true)
+    );
+
+    return await interaction.update({
+        embeds: [newEmbed],
+        components: [disabledButtons]
+    });
+}
+
+async function rejectDailyTask(interaction, submissionId) {
+    if (!hasReviewAccess(interaction.member)) {
+        return await interaction.reply({
+            content: '❌ Відхиляти daily tasks можуть тільки 9/10 ранг.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const submission = await dailyTaskSubmissions.findOne({ _id: new ObjectId(submissionId) });
+
+    if (!submission) {
+        return await interaction.reply({
+            content: '❌ Заявку на завдання не знайдено.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    if (submission.status !== 'pending') {
+        return await interaction.reply({
+            content: `ℹ️ Це завдання вже оброблено. Статус: **${submission.status}**.`,
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    await dailyTaskSubmissions.updateOne(
+        { _id: submission._id },
+        {
+            $set: {
+                status: 'rejected',
+                reviewedBy: interaction.member.displayName,
+                reviewedAt: Date.now()
+            }
+        }
+    );
+
+    await updateDailyTasksPanel();
+
+    await logAction(
+        '❌ Daily task відхилено',
+        `👤 Учасник: <@${submission.userId}>\n📌 Завдання: **${submission.taskText}**\n🛡 Відхилив: **${interaction.member.displayName}**`,
+        0xff3333
+    );
+
+    const oldEmbed = interaction.message.embeds[0];
+    const newEmbed = EmbedBuilder.from(oldEmbed)
+        .setColor(0xff3333)
+        .addFields({
+            name: '❌ Статус',
+            value: `ВІДХИЛЕНО\nПеревірив: ${interaction.member.displayName}`
+        })
+        .setFooter({ text: 'Hoffman Family • Daily Task Rejected' })
+        .setTimestamp();
+
+    const disabledButtons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('daily_task_rejected_disabled')
+            .setLabel('Відхилено')
+            .setStyle(ButtonStyle.Danger)
+            .setDisabled(true)
+    );
+
+    return await interaction.update({
+        embeds: [newEmbed],
+        components: [disabledButtons]
+    });
+}
+
+async function showMyDailyTasks(interaction) {
+    if (!hasFamilyAccess(interaction.member)) {
+        return await interaction.reply({
+            content: '❌ Щоденні завдання доступні тільки учасникам Hoffman Family.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const settings = await getOrCreateDailySettings();
+    const submissions = await dailyTaskSubmissions.find({
+        date: settings.currentDate,
+        userId: interaction.user.id
+    }).toArray();
+
+    const statusByDifficulty = {
+        easy: 'Не подано',
+        medium: 'Не подано',
+        hard: 'Не подано'
+    };
+
+    for (const item of submissions) {
+        if (item.status === 'approved') statusByDifficulty[item.difficulty] = '✅ Схвалено';
+        if (item.status === 'pending') statusByDifficulty[item.difficulty] = '⏳ На перевірці';
+        if (item.status === 'rejected') statusByDifficulty[item.difficulty] = '❌ Відхилено';
+    }
+
+    return await interaction.reply({
+        embeds: [new EmbedBuilder()
+            .setColor(0xd4af37)
+            .setTitle('📊 Мої Daily Tasks')
+            .setDescription(
+                `📅 **Дата:** ${settings.currentDate}\n\n` +
+                `🟢 Легке: **${statusByDifficulty.easy}**\n` +
+                `🟡 Середнє: **${statusByDifficulty.medium}**\n` +
+                `🔴 Складне: **${statusByDifficulty.hard}**\n\n` +
+                `Після схвалення квитки автоматично додаються до Hoffman Weekly Lottery.`
+            )
+            .setFooter({ text: 'Hoffman Family • Daily Tasks' })
+            .setTimestamp()],
+        flags: MessageFlags.Ephemeral
+    });
+}
+
+
 const commands = [
     new SlashCommandBuilder().setName('total_plus').setDescription('Поповнення сейфу'),
     new SlashCommandBuilder().setName('total_minus').setDescription('Зняття коштів'),
@@ -1985,6 +2652,7 @@ client.once(Events.ClientReady, async () => {
         await ensureBirthdayPanel();
         await ensureLotteryPanel();
         await ensureLotteryCrmPanel();
+        await ensureDailyTasksPanel();
 
         setInterval(async () => {
             const { hour, minute } = getKyivTime();
@@ -2004,6 +2672,10 @@ client.once(Events.ClientReady, async () => {
 
         setInterval(async () => {
             await checkLotteryAutoDraw();
+        }, 60000);
+
+        setInterval(async () => {
+            await checkDailyTasksRefresh();
         }, 60000);
 
     } catch (error) {
@@ -2101,12 +2773,6 @@ client.on('interactionCreate', async interaction => {
                 .setCustomId(isPlus ? 'modal_plus' : 'modal_minus')
                 .setTitle(isPlus ? 'Поповнення сейфу' : 'Зняття коштів');
 
-            const nickInput = new TextInputBuilder()
-                .setCustomId('nick')
-                .setLabel('Нік')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true);
-
             const amountInput = new TextInputBuilder()
                 .setCustomId('amount')
                 .setLabel('Сума')
@@ -2120,7 +2786,6 @@ client.on('interactionCreate', async interaction => {
                 .setRequired(false);
 
             modal.addComponents(
-                new ActionRowBuilder().addComponents(nickInput),
                 new ActionRowBuilder().addComponents(amountInput),
                 new ActionRowBuilder().addComponents(noteInput)
             );
@@ -2309,7 +2974,7 @@ if (interaction.customId === 'lottery_admin_disable') {
                         `╔════════════════════╗\n` +
                         `     **ЗНЯТТЯ КОШТІВ**\n` +
                         `╚════════════════════╝\n\n` +
-                        `👤 **Нік:** ${data.nick}\n\n` +
+                        `👤 **Учасник:** ${data.nick}\n\n` +
                         `💵 **Сума:** \`${formatMoney(data.amount)}\`\n\n` +
                         `📝 **Примітка:** ${data.note}\n\n` +
                         `━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -2323,7 +2988,7 @@ if (interaction.customId === 'lottery_admin_disable') {
 
                 await logAction(
                     '📉 Зняття коштів',
-                    `👤 Виконав: **${data.displayName}**\n📝 Нік: **${data.nick}**\n💵 Сума: **${formatMoney(data.amount)}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${data.note}`,
+                    `👤 Виконав: **${data.displayName}**\n👤 Учасник: **${data.nick}**\n💵 Сума: **${formatMoney(data.amount)}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${data.note}`,
                     0xff3333
                 );
 
@@ -2359,6 +3024,42 @@ if (interaction.customId === 'lottery_admin_disable') {
 
             if (interaction.customId.startsWith('quest_cancel:')) {
                 return await completeOrCancelQuest(interaction, false);
+            }
+
+
+            if (interaction.customId.startsWith('daily_task_submit:')) {
+                const difficulty = interaction.customId.split(':')[1];
+                return await openDailyTaskSubmitModal(interaction, difficulty);
+            }
+
+            if (interaction.customId === 'daily_task_my_progress') {
+                return await showMyDailyTasks(interaction);
+            }
+
+            if (interaction.customId === 'daily_task_refresh') {
+                if (!hasReviewAccess(interaction.member)) {
+                    return await interaction.reply({
+                        content: '❌ Оновлювати панель можуть тільки 9/10 ранг.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                await updateDailyTasksPanel();
+
+                return await interaction.reply({
+                    content: '🔁 Панель щоденних завдань оновлено.',
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            if (interaction.customId.startsWith('daily_task_approve:')) {
+                const submissionId = interaction.customId.split(':')[1];
+                return await approveDailyTask(interaction, submissionId);
+            }
+
+            if (interaction.customId.startsWith('daily_task_reject:')) {
+                const submissionId = interaction.customId.split(':')[1];
+                return await rejectDailyTask(interaction, submissionId);
             }
 
             if (!['application_approve', 'application_reject'].includes(interaction.customId)) return;
@@ -2620,6 +3321,12 @@ if (interaction.customId === 'lottery_admin_disable') {
                 return await interaction.editReply({ content: `✅ Видано **${count}** квит. для <@${userId}>.` });
             }
 
+
+            if (interaction.customId.startsWith('daily_task_submit_modal:')) {
+                const difficulty = interaction.customId.split(':')[1];
+                return await handleDailyTaskSubmitModal(interaction, difficulty);
+            }
+
             if (interaction.customId === 'hoffman_application') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -2680,7 +3387,6 @@ if (interaction.customId === 'lottery_admin_disable') {
 
             await interaction.deferReply();
 
-            const nick = interaction.fields.getTextInputValue('nick');
             const amountText = interaction.fields.getTextInputValue('amount');
             const note = interaction.fields.getTextInputValue('note') || '—';
 
@@ -2696,6 +3402,7 @@ if (interaction.customId === 'lottery_admin_disable') {
 
             const member = interaction.member;
             const displayName = member?.displayName || interaction.user.username;
+            const nick = `<@${interaction.user.id}>`;
 
             const role =
                 member.roles.cache
@@ -2717,7 +3424,7 @@ if (interaction.customId === 'lottery_admin_disable') {
                     .setColor(0xffcc00)
                     .setTitle('⚠️ Підтвердження зняття коштів')
                     .setDescription(
-                        `👤 **Нік:** ${nick}\n\n` +
+                        `👤 **Учасник:** ${nick}\n\n` +
                         `💵 **Сума:** \`${formatMoney(amount)}\`\n\n` +
                         `📝 **Примітка:** ${note}\n\n` +
                         `━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -2756,7 +3463,7 @@ if (interaction.customId === 'lottery_admin_disable') {
                     `╔════════════════════╗\n` +
                     `     **ПОПОВНЕННЯ**\n` +
                     `╚════════════════════╝\n\n` +
-                    `👤 **Нік:** ${nick}\n\n` +
+                    `👤 **Учасник:** ${nick}\n\n` +
                     `💵 **Сума:** \`${formatMoney(amount)}\`\n\n` +
                     `📝 **Примітка:** ${note}\n\n` +
                     `━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -2770,7 +3477,7 @@ if (interaction.customId === 'lottery_admin_disable') {
 
             await logAction(
                 '📈 Поповнення сейфу',
-                `👤 Виконав: **${displayName}**\n📝 Нік: **${nick}**\n💵 Сума: **${formatMoney(amount)}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${note}`,
+                `👤 Виконав: **${displayName}**\n👤 Учасник: **${nick}**\n💵 Сума: **${formatMoney(amount)}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${note}`,
                 0x00ff88
             );
 
