@@ -1466,7 +1466,7 @@ function createLotteryPanelButtons() {
 }
 
 async function ensureLotteryPanel() {
-    const channel = await client.channels.fetch(LOTTERY_RESULTS_CHANNEL_ID).catch(() => null);
+    const channel = await client.channels.fetch(LOTTERY_CHANNEL_ID).catch(() => null);
     if (!channel) {
         console.log('Канал розіграшів не знайдено.');
         return;
@@ -1616,7 +1616,7 @@ async function runLotteryDraw(triggeredBy = 'auto') {
     const stats = await getLotteryStats();
 
     if (!stats.totalTickets || !stats.rows.length) {
-        const channel = await client.channels.fetch(LOTTERY_CHANNEL_ID).catch(() => null);
+        const channel = await client.channels.fetch(LOTTERY_RESULTS_CHANNEL_ID).catch(() => null);
         if (channel) {
             await channel.send({
                 embeds: [new EmbedBuilder()
@@ -1644,7 +1644,7 @@ async function runLotteryDraw(triggeredBy = 'auto') {
         const balance = await getBalance();
 
         if (balance < prizeAmount) {
-            const channel = await client.channels.fetch(LOTTERY_CHANNEL_ID).catch(() => null);
+            const channel = await client.channels.fetch(LOTTERY_RESULTS_CHANNEL_ID).catch(() => null);
             if (channel) {
                 await channel.send({
                     embeds: [new EmbedBuilder()
@@ -1676,7 +1676,7 @@ async function runLotteryDraw(triggeredBy = 'auto') {
         prizeText = `💰 ${formatMoney(prizeAmount)}`;
     }
 
-    const channel = await client.channels.fetch(LOTTERY_CHANNEL_ID).catch(() => null);
+    const channel = await client.channels.fetch(LOTTERY_RESULTS_CHANNEL_ID).catch(() => null);
 
     if (channel) {
         await channel.send({
