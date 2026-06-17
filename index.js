@@ -3531,16 +3531,17 @@ if (!cleanToken) {
         console.error('⏳ Discord login не завершився за 60 секунд. Це означає, що процес завис на підключенні до Discord Gateway.');
     }, 60000);
 
-    client.login(cleanToken)
-        .then(() => {
-            clearTimeout(loginTimeout);
-            console.log('✅ Discord login успішно завершено.');
-        })
-        .catch(error => {
-            clearTimeout(loginTimeout);
-            console.error('❌ Помилка Discord login:', error);
-        });
-}
+    console.log('1');
+
+client.login(cleanToken)
+    .then(() => {
+        console.log('2');
+        clearTimeout(loginTimeout);
+        console.log('✅ Discord login успішно завершено.');
+    })
+    .catch(error => {
+        clearTimeout(loginTimeout);
+        console.error('❌ Помилка Discord login:', error);
 
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
