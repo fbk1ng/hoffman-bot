@@ -3501,7 +3501,6 @@ if (interaction.customId === 'lottery_admin_disable') {
     }
 });
 
-client.on('debug', info => console.log('🧪 Discord debug:', info));
 client.on('warn', info => console.warn('⚠️ Discord warn:', info));
 client.on('error', error => console.error('❌ Discord client error:', error));
 client.on('shardError', error => console.error('❌ Discord shard error:', error));
@@ -3510,19 +3509,29 @@ client.on('shardDisconnect', (event, id) => console.warn(`⚠️ Discord shard $
 client.on('shardReconnecting', id => console.log(`🔄 Discord shard ${id} reconnecting...`));
 client.on('invalidated', () => console.error('❌ Discord session invalidated.'));
 
-console.log('🔍 TOKEN:', TOKEN ? 'є' : 'НЕМАЄ');
+process.on('unhandledRejection', error => {
+    console.error('❌ Unhandled Promise Rejection:', error);
+});
+
+process.on('uncaughtException', error => {
+    console.error('❌ Uncaught Exception:', error);
+});
+
+const cleanToken = TOKEN?.trim();
+
+console.log('🔍 TOKEN:', cleanToken ? 'є' : 'НЕМАЄ');
 console.log('🔍 MONGODB_URI:', MONGODB_URI ? 'є' : 'НЕМАЄ');
 
-if (!TOKEN) {
+if (!cleanToken) {
     console.error('❌ TOKEN не знайдено в Render Environment Variables.');
 } else {
     console.log('🔍 Запускаю Discord login...');
 
     const loginTimeout = setTimeout(() => {
-        console.error('⏳ Discord login не завершився за 30 секунд. Перевір TOKEN, доступ Discord Gateway або перезапусти Render service.');
-    }, 30000);
+        console.error('⏳ Discord login не завершився за 60 секунд. Це означає, що процес завис на підключенні до Discord Gateway.');
+    }, 60000);
 
-    client.login(TOKEN.trim())
+    client.login(cleanToken)
         .then(() => {
             clearTimeout(loginTimeout);
             console.log('✅ Discord login успішно завершено.');
