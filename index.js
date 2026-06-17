@@ -3502,26 +3502,20 @@ if (interaction.customId === 'lottery_admin_disable') {
 });
 
 process.on('unhandledRejection', error => {
-    console.error('❌ Unhandled promise rejection:', error);
+    console.error('❌ Unhandled Rejection:', error);
 });
 
 process.on('uncaughtException', error => {
-    console.error('❌ Uncaught exception:', error);
+    console.error('❌ Uncaught Exception:', error);
 });
 
-client.on(Events.Error, error => {
+client.on('error', error => {
     console.error('❌ Discord client error:', error);
 });
 
-if (!TOKEN) {
-    console.error('❌ TOKEN не знайдено в Render Environment Variables. Перевір змінну TOKEN.');
-} else {
-    client.login(TOKEN)
-        .then(() => console.log('✅ Discord login запущено. Очікуємо ClientReady...'))
-        .catch(error => {
-            console.error('❌ Помилка Discord login:', error);
-        });
-}
+client.on('warn', warning => {
+    console.warn('⚠️ Discord client warning:', warning);
+});
 
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -3529,3 +3523,19 @@ http.createServer((req, res) => {
 }).listen(process.env.PORT || 3000, () => {
     console.log('Web server запущений для Render');
 });
+
+console.log('🔍 TOKEN:', TOKEN ? 'є' : 'НЕМАЄ');
+console.log('🔍 MONGODB_URI:', MONGODB_URI ? 'є' : 'НЕМАЄ');
+console.log('🔍 Запускаю Discord login...');
+
+if (!TOKEN) {
+    console.error('❌ TOKEN не знайдено в Render Environment Variables. Перевір змінну TOKEN.');
+} else {
+    client.login(TOKEN)
+        .then(() => {
+            console.log('✅ Discord login запущено. Очікую ClientReady...');
+        })
+        .catch(error => {
+            console.error('❌ Помилка Discord login:', error);
+        });
+}
