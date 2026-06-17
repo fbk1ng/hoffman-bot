@@ -3542,6 +3542,8 @@ client.login(cleanToken)
     .catch(error => {
         clearTimeout(loginTimeout);
         console.error('❌ Помилка Discord login:', error);
+    });
+}
 
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
