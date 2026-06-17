@@ -3501,21 +3501,37 @@ if (interaction.customId === 'lottery_admin_disable') {
     }
 });
 
-process.on('unhandledRejection', error => {
-    console.error('❌ Unhandled Rejection:', error);
-});
+client.on('debug', info => console.log('🧪 Discord debug:', info));
+client.on('warn', info => console.warn('⚠️ Discord warn:', info));
+client.on('error', error => console.error('❌ Discord client error:', error));
+client.on('shardError', error => console.error('❌ Discord shard error:', error));
+client.on('shardReady', id => console.log(`✅ Discord shard ${id} ready`));
+client.on('shardDisconnect', (event, id) => console.warn(`⚠️ Discord shard ${id} disconnected:`, event?.code, event?.reason));
+client.on('shardReconnecting', id => console.log(`🔄 Discord shard ${id} reconnecting...`));
+client.on('invalidated', () => console.error('❌ Discord session invalidated.'));
 
-process.on('uncaughtException', error => {
-    console.error('❌ Uncaught Exception:', error);
-});
+console.log('🔍 TOKEN:', TOKEN ? 'є' : 'НЕМАЄ');
+console.log('🔍 MONGODB_URI:', MONGODB_URI ? 'є' : 'НЕМАЄ');
 
-client.on('error', error => {
-    console.error('❌ Discord client error:', error);
-});
+if (!TOKEN) {
+    console.error('❌ TOKEN не знайдено в Render Environment Variables.');
+} else {
+    console.log('🔍 Запускаю Discord login...');
 
-client.on('warn', warning => {
-    console.warn('⚠️ Discord client warning:', warning);
-});
+    const loginTimeout = setTimeout(() => {
+        console.error('⏳ Discord login не завершився за 30 секунд. Перевір TOKEN, доступ Discord Gateway або перезапусти Render service.');
+    }, 30000);
+
+    client.login(TOKEN)
+        .then(() => {
+            clearTimeout(loginTimeout);
+            console.log('✅ Discord login успішно завершено.');
+        })
+        .catch(error => {
+            clearTimeout(loginTimeout);
+            console.error('❌ Помилка Discord login:', error);
+        });
+}
 
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -3523,19 +3539,3 @@ http.createServer((req, res) => {
 }).listen(process.env.PORT || 3000, () => {
     console.log('Web server запущений для Render');
 });
-
-console.log('🔍 TOKEN:', TOKEN ? 'є' : 'НЕМАЄ');
-console.log('🔍 MONGODB_URI:', MONGODB_URI ? 'є' : 'НЕМАЄ');
-console.log('🔍 Запускаю Discord login...');
-
-if (!TOKEN) {
-    console.error('❌ TOKEN не знайдено в Render Environment Variables. Перевір змінну TOKEN.');
-} else {
-    client.login(TOKEN)
-        .then(() => {
-            console.log('✅ Discord login запущено. Очікую ClientReady...');
-        })
-        .catch(error => {
-            console.error('❌ Помилка Discord login:', error);
-        });
-}
