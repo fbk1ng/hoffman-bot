@@ -102,7 +102,11 @@ const DEFAULT_DAILY_TASKS = [
 ];
 
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
+    ]
 });
 
 let balances;
@@ -120,6 +124,7 @@ let dailyTaskSettings;
 
 const commandCooldowns = new Map();
 const pendingWithdrawals = new Map();
+const pendingDailyTaskUploads = new Map();
 
 function formatMoney(amount) {
     return `$${Number(amount).toLocaleString('en-US')}`;
@@ -212,7 +217,7 @@ function isFamilyCommand(commandName) {
 }
 
 async function connectDB() {
-    if (!MONGODB_URI) throw new Error('MONGODB_URI не доданий у Render');
+    if (!MONGODB_URI) throw new Error('MONGODB_URI не доданий у Environment Variables');
 
     const mongo = new MongoClient(MONGODB_URI);
     await mongo.connect();
@@ -1624,7 +1629,13 @@ function createLotteryCrmButtons() {
             .setCustomId('lottery_admin_disable')
             .setLabel('Вимкнути')
             .setStyle(ButtonStyle.Danger)
-            .setEmoji('🔴')
+            .setEmoji('🔴'),
+
+        new ButtonBuilder()
+            .setCustomId('lottery_admin_remove_tickets')
+            .setLabel('Забрати квитки')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('➖')
     );
     
     return [row1, row2, row3];
@@ -1975,6 +1986,59 @@ async function openLotteryAddTicketsModal(interaction) {
     return await interaction.showModal(modal);
 }
 
+
+async function openLotteryRemoveTicketsModal(interaction) {
+    if (!hasReviewAccess(interaction.member)) {
+        return await interaction.reply({ content: '❌ Доступ тільки для 9/10 рангу.', flags: MessageFlags.Ephemeral });
+    }
+
+    const modal = new ModalBuilder().setCustomId('lottery_remove_tickets_modal').setTitle('Забрати квитки');
+
+    const userInput = new TextInputBuilder()
+        .setCustomId('lottery_remove_user_id')
+        .setLabel('ID користувача')
+        .setPlaceholder('Встав Discord ID користувача')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const countInput = new TextInputBuilder()
+        .setCustomId('lottery_remove_ticket_count')
+        .setLabel('Кількість квитків')
+        .setPlaceholder('1')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const reasonInput = new TextInputBuilder()
+        .setCustomId('lottery_remove_ticket_reason')
+        .setLabel('Причина')
+        .setPlaceholder('Помилкова видача / рішення керівництва')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(false);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(userInput),
+        new ActionRowBuilder().addComponents(countInput),
+        new ActionRowBuilder().addComponents(reasonInput)
+    );
+
+    return await interaction.showModal(modal);
+}
+
+async function removeLotteryTickets(userId, count) {
+    const data = await lotteryTickets.findOne({ userId });
+    const currentWeekly = data?.weeklyTickets || 0;
+    const removeCount = Math.min(currentWeekly, count);
+    const newWeekly = Math.max(0, currentWeekly - removeCount);
+
+    await lotteryTickets.updateOne(
+        { userId },
+        { $set: { weeklyTickets: newWeekly, updatedAt: Date.now() } },
+        { upsert: true }
+    );
+
+    return { removed: removeCount, previous: currentWeekly, current: newWeekly };
+}
+
 async function resetLotteryTickets(interaction) {
     if (!hasReviewAccess(interaction.member)) {
         return await interaction.reply({ content: '❌ Доступ тільки для 9/10 рангу.', flags: MessageFlags.Ephemeral });
@@ -2267,10 +2331,10 @@ async function openDailyTaskSubmitModal(interaction, difficulty) {
 
     const proofInput = new TextInputBuilder()
         .setCustomId('daily_task_proof')
-        .setLabel('Посилання на скріншот / доказ')
-        .setPlaceholder('Встав посилання на скріншот або відео')
+        .setLabel('Доказ текстом або посиланням')
+        .setPlaceholder('Можна залишити порожнім і після форми просто прикріпити скріншот у чат')
         .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true);
+        .setRequired(false);
 
     const commentInput = new TextInputBuilder()
         .setCustomId('daily_task_comment')
@@ -2285,6 +2349,85 @@ async function openDailyTaskSubmitModal(interaction, difficulty) {
     );
 
     return await interaction.showModal(modal);
+}
+
+
+async function createDailyTaskReviewSubmission({ userId, userName, difficulty, task, date, proof, comment, imageUrl = null }) {
+    const submission = {
+        date,
+        userId,
+        userName,
+        difficulty,
+        taskKey: task.key,
+        taskText: task.text,
+        rewardTickets: task.rewardTickets,
+        proof: proof || '—',
+        comment: comment || '—',
+        imageUrl,
+        status: 'pending',
+        createdAt: Date.now()
+    };
+
+    const insertResult = await dailyTaskSubmissions.insertOne(submission);
+    const submissionId = insertResult.insertedId.toString();
+
+    const reviewChannel = await client.channels.fetch(DAILY_TASKS_REVIEW_CHANNEL_ID).catch(() => null);
+    if (!reviewChannel) {
+        throw new Error('Канал перевірки щоденних завдань не знайдено.');
+    }
+
+    const proofText = imageUrl
+        ? `🖼 **Скріншот:** ${imageUrl}\n${proof && proof !== '—' ? `📎 **Текстовий доказ:**\n${proof}` : ''}`
+        : `${proof || '—'}`;
+
+    const embed = new EmbedBuilder()
+        .setColor(0xffcc00)
+        .setTitle('📋 Daily Task — на перевірку')
+        .setDescription(
+            `👤 **Учасник:** <@${userId}>\n` +
+            `📅 **Дата:** ${date}\n\n` +
+            `${getDifficultyLabel(difficulty)}\n` +
+            `📌 **Завдання:** ${task.text}\n` +
+            `🎟 **Нагорода:** +${task.rewardTickets} ticket(s)\n\n` +
+            `📎 **Доказ:**\n${proofText}\n\n` +
+            `📝 **Коментар:** ${comment || '—'}`
+        )
+        .setFooter({ text: `Submission ID: ${submissionId}` })
+        .setTimestamp();
+
+    if (imageUrl) {
+        embed.setImage(imageUrl);
+    }
+
+    const buttons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`daily_task_approve:${submissionId}`)
+            .setLabel('Схвалити')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('✅'),
+
+        new ButtonBuilder()
+            .setCustomId(`daily_task_reject:${submissionId}`)
+            .setLabel('Відхилити')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('❌')
+    );
+
+    await reviewChannel.send({
+        content: `<@&${RANK_9_ROLE_ID}> <@&${RANK_10_ROLE_ID}>`,
+        embeds: [embed],
+        components: [buttons]
+    });
+
+    await logAction(
+        '📋 Daily task подано',
+        `👤 Учасник: <@${userId}>\n${getDifficultyLabel(difficulty)}\n📌 Завдання: **${task.text}**\n🎟 Нагорода: **+${task.rewardTickets}**`,
+        0xffcc00
+    );
+
+    await updateDailyTasksPanel();
+
+    return submissionId;
 }
 
 async function handleDailyTaskSubmitModal(interaction, difficulty) {
@@ -2324,75 +2467,50 @@ async function handleDailyTaskSubmitModal(interaction, difficulty) {
         });
     }
 
-    const proof = interaction.fields.getTextInputValue('daily_task_proof').trim();
+    const proof = interaction.fields.getTextInputValue('daily_task_proof')?.trim() || '';
     const comment = interaction.fields.getTextInputValue('daily_task_comment')?.trim() || '—';
 
-    const submission = {
-        date: settings.currentDate,
-        userId: interaction.user.id,
-        userName: interaction.member?.displayName || interaction.user.username,
-        difficulty,
-        taskKey: task.key,
-        taskText: task.text,
-        rewardTickets: task.rewardTickets,
-        proof,
-        comment,
-        status: 'pending',
-        createdAt: Date.now()
-    };
+    if (!proof) {
+        pendingDailyTaskUploads.set(interaction.user.id, {
+            channelId: interaction.channelId,
+            date: settings.currentDate,
+            difficulty,
+            task,
+            comment,
+            expiresAt: Date.now() + 10 * 60 * 1000
+        });
 
-    const insertResult = await dailyTaskSubmissions.insertOne(submission);
-    const submissionId = insertResult.insertedId.toString();
+        setTimeout(() => {
+            const pending = pendingDailyTaskUploads.get(interaction.user.id);
+            if (pending && pending.expiresAt <= Date.now()) {
+                pendingDailyTaskUploads.delete(interaction.user.id);
+            }
+        }, 10 * 60 * 1000 + 1000);
 
-    const reviewChannel = await client.channels.fetch(DAILY_TASKS_REVIEW_CHANNEL_ID).catch(() => null);
-    if (!reviewChannel) {
         return await interaction.editReply({
-            content: '❌ Канал перевірки щоденних завдань не знайдено.'
+            content:
+                '📎 Тепер просто відправ **скріншот файлом/картинкою в цей канал** протягом 10 хвилин.\n' +
+                'Бот сам забере прикріплений скрін і відправить завдання на перевірку.\n\n' +
+                'Якщо хочеш без скріну — заповни поле доказу текстом/посиланням у формі.'
         });
     }
 
-    const embed = new EmbedBuilder()
-        .setColor(0xffcc00)
-        .setTitle('📋 Daily Task — на перевірку')
-        .setDescription(
-            `👤 **Учасник:** <@${interaction.user.id}>\n` +
-            `📅 **Дата:** ${settings.currentDate}\n\n` +
-            `${getDifficultyLabel(difficulty)}\n` +
-            `📌 **Завдання:** ${task.text}\n` +
-            `🎟 **Нагорода:** +${task.rewardTickets} ticket(s)\n\n` +
-            `📎 **Доказ:**\n${proof}\n\n` +
-            `📝 **Коментар:** ${comment}`
-        )
-        .setFooter({ text: `Submission ID: ${submissionId}` })
-        .setTimestamp();
-
-    const buttons = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId(`daily_task_approve:${submissionId}`)
-            .setLabel('Схвалити')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('✅'),
-
-        new ButtonBuilder()
-            .setCustomId(`daily_task_reject:${submissionId}`)
-            .setLabel('Відхилити')
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji('❌')
-    );
-
-    await reviewChannel.send({
-        content: `<@&${RANK_9_ROLE_ID}> <@&${RANK_10_ROLE_ID}>`,
-        embeds: [embed],
-        components: [buttons]
-    });
-
-    await logAction(
-        '📋 Daily task подано',
-        `👤 Учасник: <@${interaction.user.id}>\n${getDifficultyLabel(difficulty)}\n📌 Завдання: **${task.text}**\n🎟 Нагорода: **+${task.rewardTickets}**`,
-        0xffcc00
-    );
-
-    await updateDailyTasksPanel();
+    try {
+        await createDailyTaskReviewSubmission({
+            userId: interaction.user.id,
+            userName: interaction.member?.displayName || interaction.user.username,
+            difficulty,
+            task,
+            date: settings.currentDate,
+            proof,
+            comment
+        });
+    } catch (error) {
+        console.error('Daily task submit error:', error);
+        return await interaction.editReply({
+            content: '❌ Не вдалося відправити завдання на перевірку. Перевір канал перевірки.'
+        });
+    }
 
     return await interaction.editReply({
         content: '✅ Завдання відправлено на перевірку керівництву.'
@@ -2407,17 +2525,19 @@ async function approveDailyTask(interaction, submissionId) {
         });
     }
 
+    await interaction.deferUpdate();
+
     const submission = await dailyTaskSubmissions.findOne({ _id: new ObjectId(submissionId) });
 
     if (!submission) {
-        return await interaction.reply({
+        return await interaction.followUp({
             content: '❌ Заявку на завдання не знайдено.',
             flags: MessageFlags.Ephemeral
         });
     }
 
     if (submission.status !== 'pending') {
-        return await interaction.reply({
+        return await interaction.followUp({
             content: `ℹ️ Це завдання вже оброблено. Статус: **${submission.status}**.`,
             flags: MessageFlags.Ephemeral
         });
@@ -2453,24 +2573,17 @@ async function approveDailyTask(interaction, submissionId) {
     const oldEmbed = interaction.message.embeds[0];
     const newEmbed = EmbedBuilder.from(oldEmbed)
         .setColor(0x00ff88)
+        .setTitle('✅ Daily Task — схвалено')
         .addFields({
             name: '✅ Статус',
-            value: `СХВАЛЕНО\nПеревірив: ${interaction.member.displayName}`
+            value: `СХВАЛЕНО\nПеревірив: ${interaction.member.displayName}\n🎟 Видано: +${submission.rewardTickets} ticket(s)`
         })
         .setFooter({ text: 'Hoffman Family • Daily Task Approved' })
         .setTimestamp();
 
-    const disabledButtons = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('daily_task_approved_disabled')
-            .setLabel('Схвалено')
-            .setStyle(ButtonStyle.Success)
-            .setDisabled(true)
-    );
-
-    return await interaction.update({
+    await interaction.message.edit({
         embeds: [newEmbed],
-        components: [disabledButtons]
+        components: []
     });
 }
 
@@ -2482,17 +2595,19 @@ async function rejectDailyTask(interaction, submissionId) {
         });
     }
 
+    await interaction.deferUpdate();
+
     const submission = await dailyTaskSubmissions.findOne({ _id: new ObjectId(submissionId) });
 
     if (!submission) {
-        return await interaction.reply({
+        return await interaction.followUp({
             content: '❌ Заявку на завдання не знайдено.',
             flags: MessageFlags.Ephemeral
         });
     }
 
     if (submission.status !== 'pending') {
-        return await interaction.reply({
+        return await interaction.followUp({
             content: `ℹ️ Це завдання вже оброблено. Статус: **${submission.status}**.`,
             flags: MessageFlags.Ephemeral
         });
@@ -2520,6 +2635,7 @@ async function rejectDailyTask(interaction, submissionId) {
     const oldEmbed = interaction.message.embeds[0];
     const newEmbed = EmbedBuilder.from(oldEmbed)
         .setColor(0xff3333)
+        .setTitle('❌ Daily Task — відхилено')
         .addFields({
             name: '❌ Статус',
             value: `ВІДХИЛЕНО\nПеревірив: ${interaction.member.displayName}`
@@ -2527,17 +2643,9 @@ async function rejectDailyTask(interaction, submissionId) {
         .setFooter({ text: 'Hoffman Family • Daily Task Rejected' })
         .setTimestamp();
 
-    const disabledButtons = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('daily_task_rejected_disabled')
-            .setLabel('Відхилено')
-            .setStyle(ButtonStyle.Danger)
-            .setDisabled(true)
-    );
-
-    return await interaction.update({
+    await interaction.message.edit({
         embeds: [newEmbed],
-        components: [disabledButtons]
+        components: []
     });
 }
 
@@ -2680,6 +2788,61 @@ client.once(Events.ClientReady, async () => {
 
     } catch (error) {
         console.error('Помилка запуску:', error);
+    }
+});
+
+
+client.on('messageCreate', async message => {
+    try {
+        if (message.author.bot || !message.guild) return;
+
+        const pending = pendingDailyTaskUploads.get(message.author.id);
+        if (!pending) return;
+
+        if (pending.expiresAt <= Date.now()) {
+            pendingDailyTaskUploads.delete(message.author.id);
+            return;
+        }
+
+        if (message.channelId !== pending.channelId) return;
+
+        const attachment = message.attachments.find(file =>
+            file.contentType?.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(file.name || '')
+        );
+
+        if (!attachment) return;
+
+        const existing = await dailyTaskSubmissions.findOne({
+            date: pending.date,
+            userId: message.author.id,
+            difficulty: pending.difficulty,
+            status: { $in: ['pending', 'approved'] }
+        });
+
+        if (existing) {
+            pendingDailyTaskUploads.delete(message.author.id);
+            await message.reply('⏳ Це завдання вже подано або зараховано.').catch(() => null);
+            return;
+        }
+
+        const member = await message.guild.members.fetch(message.author.id).catch(() => null);
+
+        await createDailyTaskReviewSubmission({
+            userId: message.author.id,
+            userName: member?.displayName || message.author.username,
+            difficulty: pending.difficulty,
+            task: pending.task,
+            date: pending.date,
+            proof: `Скріншот прикріплено користувачем у каналі <#${message.channelId}>`,
+            comment: pending.comment,
+            imageUrl: attachment.url
+        });
+
+        pendingDailyTaskUploads.delete(message.author.id);
+
+        await message.reply('✅ Скріншот отримано. Завдання відправлено на перевірку керівництву.').catch(() => null);
+    } catch (error) {
+        console.error('Daily task attachment error:', error);
     }
 });
 
@@ -2933,6 +3096,10 @@ if (interaction.customId === 'lottery_admin_disable') {
 
             if (interaction.customId === 'lottery_admin_add_tickets') {
                 return await openLotteryAddTicketsModal(interaction);
+            }
+
+            if (interaction.customId === 'lottery_admin_remove_tickets') {
+                return await openLotteryRemoveTicketsModal(interaction);
             }
 
             if (interaction.customId === 'lottery_admin_stats') {
@@ -3321,6 +3488,36 @@ if (interaction.customId === 'lottery_admin_disable') {
                 return await interaction.editReply({ content: `✅ Видано **${count}** квит. для <@${userId}>.` });
             }
 
+            if (interaction.customId === 'lottery_remove_tickets_modal') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                if (!hasReviewAccess(interaction.member)) {
+                    return await interaction.editReply({ content: '❌ Доступ тільки для 9/10 рангу.' });
+                }
+
+                const userId = interaction.fields.getTextInputValue('lottery_remove_user_id').replace(/\D/g, '');
+                const count = parseInt(interaction.fields.getTextInputValue('lottery_remove_ticket_count').replace(/\D/g, ''));
+                const reason = interaction.fields.getTextInputValue('lottery_remove_ticket_reason') || 'Ручне списання';
+
+                if (!userId || !count || count <= 0) {
+                    return await interaction.editReply({ content: '❌ Невірний ID користувача або кількість квитків.' });
+                }
+
+                const result = await removeLotteryTickets(userId, count);
+                await updateLotteryPanels();
+
+                await logAction(
+                    '➖ Квитки забрано вручну',
+                    `Користувач: <@${userId}>\nБуло: **${result.previous}**\nЗабрано: **${result.removed}**\nЗалишилось: **${result.current}**\nПричина: ${reason}\nЗабрав: **${interaction.member.displayName}**`,
+                    0xffcc00
+                );
+
+                return await interaction.editReply({
+                    content: `✅ У <@${userId}> забрано **${result.removed}** квит. Залишилось: **${result.current}**.`
+                });
+            }
+
+
 
             if (interaction.customId.startsWith('daily_task_submit_modal:')) {
                 const difficulty = interaction.customId.split(':')[1];
@@ -3523,7 +3720,7 @@ console.log('🔍 TOKEN:', cleanToken ? 'є' : 'НЕМАЄ');
 console.log('🔍 MONGODB_URI:', MONGODB_URI ? 'є' : 'НЕМАЄ');
 
 if (!cleanToken) {
-    console.error('❌ TOKEN не знайдено в Render Environment Variables.');
+    console.error('❌ TOKEN не знайдено в Environment Variables.');
 } else {
     console.log('🔍 Запускаю Discord login...');
 
@@ -3531,11 +3728,8 @@ if (!cleanToken) {
         console.error('⏳ Discord login не завершився за 60 секунд. Це означає, що процес завис на підключенні до Discord Gateway.');
     }, 60000);
 
-    console.log('1');
-
 client.login(cleanToken)
     .then(() => {
-        console.log('2');
         clearTimeout(loginTimeout);
         console.log('✅ Discord login успішно завершено.');
     })
@@ -3549,5 +3743,5 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Bot is running');
 }).listen(process.env.PORT || 3000, () => {
-    console.log('Web server запущений для Render');
+    console.log('Web server запущений для хостингу');
 });
