@@ -3522,7 +3522,7 @@ if (!TOKEN) {
         console.error('⏳ Discord login не завершився за 30 секунд. Перевір TOKEN, доступ Discord Gateway або перезапусти Render service.');
     }, 30000);
 
-    client.login(TOKEN)
+    client.login(TOKEN.trim())
         .then(() => {
             clearTimeout(loginTimeout);
             console.log('✅ Discord login успішно завершено.');
