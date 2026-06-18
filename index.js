@@ -1211,6 +1211,7 @@ async function createBirthdayPanelEmbed() {
             `➕ **Додати** — внести новий день народження\n` +
             `➖ **Видалити** — прибрати запис зі списку`
         )
+        .setImage('https://cdn.discordapp.com/attachments/1510979053090242711/1517095364862414930/ChatGPT_Image_18_._2026_._12_14_48.png')
         .setFooter({ text: 'Hoffman Family • Birthday System' })
         .setTimestamp();
 }
@@ -1535,6 +1536,7 @@ async function createLotteryPanelEmbed() {
             `🎟 **Квитків у розіграші:** ${stats.totalTickets}\n\n` +
             `Натисніть кнопку нижче, щоб перевірити свої квитки.`
         )
+        .setImage('https://cdn.discordapp.com/attachments/1510979053090242711/1517095365680168971/ChatGPT_Image_18_._2026_._11_58_55.png')
         .setFooter({ text: 'Hoffman Family • Weekly Lottery' })
         .setTimestamp();
 }
@@ -1783,6 +1785,7 @@ async function runLotteryDraw(triggeredBy = 'auto') {
                     `${settings.prizeType === 'money' ? '💰 Кошти автоматично списано з сімейного банку.\n' : '📌 Приз потрібно видати вручну.\n'}` +
                     `🎟 Квитки обнулено для нового тижня.`
                 )
+                .setImage('https://cdn.discordapp.com/attachments/1510979053090242711/1517095365277384754/ChatGPT_Image_18_._2026_._12_01_11.png')
                 .setFooter({ text: 'Hoffman Family • Weekly Lottery' })
                 .setTimestamp()]
         });
@@ -2190,6 +2193,7 @@ async function createDailyTasksPanelEmbed() {
             `⏳ **На перевірці:** ${stats.pendingTotal}\n\n` +
             `Натисни кнопку потрібного рівня, щоб подати виконання.`
         )
+        .setImage('https://cdn.discordapp.com/attachments/1510979053090242711/1517095366124900422/ChatGPT_Image_18_._2026_._11_57_33.png')
         .setFooter({ text: 'Hoffman Family • Daily Tasks' })
         .setTimestamp();
 }
