@@ -37,6 +37,9 @@ const LOTTERY_CRM_CHANNEL_ID = '1513487657190166538';
 const DAILY_TASKS_CHANNEL_ID = '1515963037306060881';
 const DAILY_TASKS_REVIEW_CHANNEL_ID = '1515963471550746664';
 
+const FINANCE_CRM_CHANNEL_ID = '1518883718561792093';
+const FINANCE_REPORT_CHANNEL_ID = '1516042141665722421';
+
 const CLIENT_ID = '1501160094006771812';
 const GUILD_ID = '1495987963887227031';
 
@@ -122,6 +125,7 @@ let lotteryHistory;
 let dailyTasksPool;
 let dailyTaskSubmissions;
 let dailyTaskSettings;
+let bankOperations;
 
 const commandCooldowns = new Map();
 const pendingWithdrawals = new Map();
@@ -278,11 +282,14 @@ async function connectDB() {
     dailyTasksPool = db.collection('daily_tasks_pool');
     dailyTaskSubmissions = db.collection('daily_task_submissions');
     dailyTaskSettings = db.collection('daily_task_settings');
+    bankOperations = db.collection('bank_operations');
 
     await birthdays.createIndex({ nameLower: 1 }, { unique: true });
     await lotteryTickets.createIndex({ userId: 1 }, { unique: true });
     await dailyTasksPool.createIndex({ key: 1 }, { unique: true });
     await dailyTaskSubmissions.createIndex({ date: 1, userId: 1, difficulty: 1 });
+    await bankOperations.createIndex({ createdAt: -1 });
+    await bankOperations.createIndex({ type: 1, category: 1, createdAt: -1 });
 
     await lotterySettings.updateOne(
         { name: 'weekly_lottery' },
@@ -417,6 +424,288 @@ async function addDailyStat(type, amount) {
         },
         { upsert: true }
     );
+}
+
+async function recordBankOperation({ type, amount, category = 'other', note = '—', userId = null, userName = 'System', displayName = 'System', role = 'System', balanceAfter = null, source = 'manual' }) {
+    if (!bankOperations) return;
+
+    const categoryLabel = getBankCategoryLabel(type, category);
+
+    await bankOperations.insertOne({
+        type,
+        amount: Number(amount) || 0,
+        category,
+        categoryLabel,
+        note: note || '—',
+        userId,
+        userName,
+        displayName,
+        role,
+        balanceAfter,
+        source,
+        date: getKyivDate(),
+        createdAt: Date.now()
+    });
+}
+
+function getKyivWeekRange(timestamp = Date.now()) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Kyiv',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).formatToParts(new Date(timestamp));
+
+    const year = Number(parts.find(p => p.type === 'year').value);
+    const month = Number(parts.find(p => p.type === 'month').value);
+    const day = Number(parts.find(p => p.type === 'day').value);
+
+    const currentDay = new Date(Date.UTC(year, month - 1, day));
+    const weekday = currentDay.getUTCDay();
+    const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
+
+    const startDate = new Date(Date.UTC(year, month - 1, day + mondayOffset));
+    const endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    return {
+        start: startDate.getTime(),
+        end: endDate.getTime(),
+        startText: new Intl.DateTimeFormat('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(startDate),
+        endText: new Intl.DateTimeFormat('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(endDate.getTime() - 24 * 60 * 60 * 1000))
+    };
+}
+
+function formatSignedMoney(amount) {
+    const value = Number(amount) || 0;
+    return `${value >= 0 ? '+' : '-'}${formatMoney(Math.abs(value))}`;
+}
+
+async function getFinanceWeeklyStats() {
+    const range = getKyivWeekRange();
+    const operations = bankOperations
+        ? await bankOperations.find({ createdAt: { $gte: range.start, $lt: range.end } }).sort({ createdAt: -1 }).toArray()
+        : [];
+
+    const plusByCategory = {};
+    const minusByCategory = {};
+    let plus = 0;
+    let minus = 0;
+    let plusCount = 0;
+    let minusCount = 0;
+
+    for (const operation of operations) {
+        const amount = Number(operation.amount) || 0;
+
+        if (operation.type === 'plus') {
+            plus += amount;
+            plusCount++;
+            plusByCategory[operation.category || 'other'] = (plusByCategory[operation.category || 'other'] || 0) + amount;
+        }
+
+        if (operation.type === 'minus') {
+            minus += amount;
+            minusCount++;
+            minusByCategory[operation.category || 'other'] = (minusByCategory[operation.category || 'other'] || 0) + amount;
+        }
+    }
+
+    return {
+        ...range,
+        operations,
+        lastOperations: operations.slice(0, 15),
+        plus,
+        minus,
+        net: plus - minus,
+        plusCount,
+        minusCount,
+        plusByCategory,
+        minusByCategory
+    };
+}
+
+function formatCategoryStats(categories, values) {
+    return Object.entries(categories)
+        .map(([key, label]) => `${label} — \`${formatMoney(values[key] || 0)}\``)
+        .join('\n');
+}
+
+async function createFinanceCrmEmbed() {
+    const balance = await getBalance();
+    const stats = await getFinanceWeeklyStats();
+
+    return new EmbedBuilder()
+        .setColor(0xd4af37)
+        .setTitle('💰 HOFFMAN FINANCE CRM')
+        .setDescription(
+            `🏛 **Панель фінансового керівництва Hoffman Family**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `📅 **Період:** ${stats.startText} – ${stats.endText}\n` +
+            `💰 **Поточний баланс сейфу:** \`${formatMoney(balance)}\`\n\n` +
+            `📈 **Поповнено за тиждень:** \`${formatMoney(stats.plus)}\`\n` +
+            `📉 **Витрачено за тиждень:** \`-${formatMoney(stats.minus)}\`\n` +
+            `📊 **Різниця:** \`${formatSignedMoney(stats.net)}\`\n\n` +
+            `📌 **Кількість операцій:**\n` +
+            `📈 Поповнень: **${stats.plusCount}**\n` +
+            `📉 Зняттів: **${stats.minusCount}**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `📂 **Поповнення по категоріях:**\n${formatCategoryStats(BANK_PLUS_CATEGORIES, stats.plusByCategory)}\n\n` +
+            `📂 **Витрати по категоріях:**\n${formatCategoryStats(BANK_MINUS_CATEGORIES, stats.minusByCategory)}`
+        )
+        .setFooter({ text: 'Hoffman Finance CRM • Weekly Control' })
+        .setTimestamp();
+}
+
+function createFinanceCrmButtons() {
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('finance_crm_refresh')
+            .setLabel('Оновити')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🔄'),
+
+        new ButtonBuilder()
+            .setCustomId('finance_crm_preview_report')
+            .setLabel('Звіт за тиждень')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('📄'),
+
+        new ButtonBuilder()
+            .setCustomId('finance_crm_send_report')
+            .setLabel('Відправити звіт')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('📤'),
+
+        new ButtonBuilder()
+            .setCustomId('finance_crm_recent_operations')
+            .setLabel('Останні операції')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('📋')
+    );
+
+    return [row];
+}
+
+async function ensureFinanceCrmPanel() {
+    const channel = await client.channels.fetch(FINANCE_CRM_CHANNEL_ID).catch(() => null);
+
+    if (!channel) {
+        console.log('Finance CRM канал не знайдено.');
+        return;
+    }
+
+    const settings = await botSettings.findOne({ name: 'finance_crm_panel' });
+    const embed = await createFinanceCrmEmbed();
+    const buttons = createFinanceCrmButtons();
+
+    if (settings?.messageId) {
+        const oldMessage = await channel.messages.fetch(settings.messageId).catch(() => null);
+
+        if (oldMessage) {
+            await oldMessage.edit({ embeds: [embed], components: buttons });
+            console.log('Finance CRM панель оновлено.');
+            return;
+        }
+    }
+
+    const message = await channel.send({ embeds: [embed], components: buttons });
+
+    await botSettings.updateOne(
+        { name: 'finance_crm_panel' },
+        { $set: { name: 'finance_crm_panel', messageId: message.id } },
+        { upsert: true }
+    );
+
+    console.log('Finance CRM панель створено.');
+}
+
+async function updateFinanceCrmPanel() {
+    await ensureFinanceCrmPanel();
+}
+
+async function createFinanceWeeklyReportEmbed(sentBy = null) {
+    const balance = await getBalance();
+    const stats = await getFinanceWeeklyStats();
+
+    return new EmbedBuilder()
+        .setColor(0xd4af37)
+        .setTitle('💰 Доповідь фінансового керівника')
+        .setDescription(
+            `👤 **Відповідальний напрямок:** фінанси Hoffman Family\n` +
+            `${sentBy ? `🛡 **Доповідь сформував:** ${sentBy}\n` : ''}` +
+            `📅 **Період:** ${stats.startText} – ${stats.endText}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `📈 **Поповнено до банку:** \`${formatMoney(stats.plus)}\`\n` +
+            `📉 **Витрачено з банку:** \`-${formatMoney(stats.minus)}\`\n` +
+            `📊 **Чистий результат:** \`${formatSignedMoney(stats.net)}\`\n` +
+            `💰 **Поточний баланс сейфу:** \`${formatMoney(balance)}\`\n\n` +
+            `📌 **Кількість операцій:**\n` +
+            `📈 Поповнень: **${stats.plusCount}**\n` +
+            `📉 Зняттів: **${stats.minusCount}**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `📂 **Основні поповнення:**\n${formatCategoryStats(BANK_PLUS_CATEGORIES, stats.plusByCategory)}\n\n` +
+            `📂 **Основні витрати:**\n${formatCategoryStats(BANK_MINUS_CATEGORIES, stats.minusByCategory)}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `📝 **Висновок:**\n` +
+            `Фінансовий стан сімʼї знаходиться під контролем. Банківські операції протягом тижня проводились за категоріями, що дозволяє контролювати поповнення, витрати та поточний баланс сімейного сейфу.`
+        )
+        .setFooter({ text: 'Hoffman Family • Weekly Finance Report' })
+        .setTimestamp();
+}
+
+async function sendFinanceWeeklyReport(interaction) {
+    const channel = await client.channels.fetch(FINANCE_REPORT_CHANNEL_ID).catch(() => null);
+
+    if (!channel) {
+        return await interaction.reply({
+            content: '❌ Канал для доповідей не знайдено.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const embed = await createFinanceWeeklyReportEmbed(interaction.member?.displayName || interaction.user.username);
+
+    await channel.send({ embeds: [embed] });
+
+    await logAction(
+        '📤 Фінансову доповідь відправлено',
+        `Канал: <#${FINANCE_REPORT_CHANNEL_ID}>\nВідправив: **${interaction.member?.displayName || interaction.user.username}**`,
+        0xd4af37
+    );
+
+    await updateFinanceCrmPanel();
+
+    return await interaction.reply({
+        content: `✅ Фінансову доповідь відправлено в <#${FINANCE_REPORT_CHANNEL_ID}>.`,
+        flags: MessageFlags.Ephemeral
+    });
+}
+
+async function showFinanceRecentOperations(interaction) {
+    const stats = await getFinanceWeeklyStats();
+
+    if (!stats.lastOperations.length) {
+        return await interaction.reply({
+            content: 'ℹ️ За поточний тиждень фінансових операцій ще немає.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const text = stats.lastOperations
+        .map(operation => {
+            const sign = operation.type === 'plus' ? '📈 +' : '📉 -';
+            return `${sign}${formatMoney(operation.amount)}\n${operation.categoryLabel || getBankCategoryLabel(operation.type, operation.category)}\n👤 ${operation.displayName || operation.userName || 'System'}\n📝 ${operation.note || '—'}\n🕒 ${getKyivDateTime(operation.createdAt)}`;
+        })
+        .join('\n\n━━━━━━━━━━━━━━━\n\n');
+
+    return await interaction.reply({
+        embeds: [new EmbedBuilder()
+            .setColor(0xd4af37)
+            .setTitle('📋 Останні фінансові операції')
+            .setDescription(text)
+            .setFooter({ text: 'Hoffman Finance CRM • Recent Operations' })
+            .setTimestamp()],
+        flags: MessageFlags.Ephemeral
+    });
 }
 
 async function logAction(title, description, color = 0xd4af37) {
@@ -963,6 +1252,22 @@ async function completeOrCancelQuest(interaction, completed) {
     if (completed) {
         newBalance = await changeBalance(quest.reward);
         await addDailyStat('plus', quest.reward);
+
+        await recordBankOperation({
+            type: 'plus',
+            amount: quest.reward,
+            category: 'quest',
+            note: `Квест: ${quest.name}`,
+            userId: interaction.user.id,
+            userName: `<@${interaction.user.id}>`,
+            displayName: interaction.member?.displayName || interaction.user.username,
+            role: 'Quest System',
+            balanceAfter: newBalance,
+            source: 'quest'
+        });
+
+        await updateFinanceCrmPanel();
+
         await addLotteryTicketsForQuest(participants, quest.name);
     }
 
@@ -1804,8 +2109,24 @@ async function runLotteryDraw(triggeredBy = 'auto') {
             return { ok: false, message: 'Недостатньо коштів у банку.' };
         }
 
-        await changeBalance(-prizeAmount);
+        const newBalance = await changeBalance(-prizeAmount);
         await addDailyStat('minus', prizeAmount);
+
+        await recordBankOperation({
+            type: 'minus',
+            amount: prizeAmount,
+            category: 'lottery',
+            note: `Лотерея: переможець <@${winner.userId}>`,
+            userId: winner.userId,
+            userName: winner.userName,
+            displayName: 'Hoffman Lottery System',
+            role: 'Lottery System',
+            balanceAfter: newBalance,
+            source: 'lottery'
+        });
+
+        await updateFinanceCrmPanel();
+
         prizeText = `💰 ${formatMoney(prizeAmount)}`;
     }
 
@@ -2810,6 +3131,7 @@ client.once(Events.ClientReady, async () => {
         await ensureLotteryPanel();
         await ensureLotteryCrmPanel();
         await ensureDailyTasksPanel();
+        await ensureFinanceCrmPanel();
 
         setInterval(async () => {
             const { hour, minute } = getKyivTime();
@@ -3034,6 +3356,60 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isButton()) {
+            if (interaction.customId === 'finance_crm_refresh') {
+                if (!hasReviewAccess(interaction.member)) {
+                    return await interaction.reply({
+                        content: '❌ Доступ до Finance CRM мають тільки 9/10 ранг.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                await updateFinanceCrmPanel();
+
+                return await interaction.reply({
+                    content: '✅ Finance CRM панель оновлено.',
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            if (interaction.customId === 'finance_crm_preview_report') {
+                if (!hasReviewAccess(interaction.member)) {
+                    return await interaction.reply({
+                        content: '❌ Доступ до Finance CRM мають тільки 9/10 ранг.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                const embed = await createFinanceWeeklyReportEmbed(interaction.member?.displayName || interaction.user.username);
+
+                return await interaction.reply({
+                    embeds: [embed],
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            if (interaction.customId === 'finance_crm_send_report') {
+                if (!hasReviewAccess(interaction.member)) {
+                    return await interaction.reply({
+                        content: '❌ Доступ до Finance CRM мають тільки 9/10 ранг.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                return await sendFinanceWeeklyReport(interaction);
+            }
+
+            if (interaction.customId === 'finance_crm_recent_operations') {
+                if (!hasReviewAccess(interaction.member)) {
+                    return await interaction.reply({
+                        content: '❌ Доступ до Finance CRM мають тільки 9/10 ранг.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                return await showFinanceRecentOperations(interaction);
+            }
+
              if (interaction.customId === 'get_guest_role') {
                 if (interaction.member.roles.cache.has(GUEST_ROLE_ID)) {
                     return await interaction.reply({
@@ -3211,6 +3587,21 @@ if (interaction.customId === 'lottery_admin_disable') {
                 const newBalance = await changeBalance(-data.amount);
                 await addDailyStat('minus', data.amount);
 
+                await recordBankOperation({
+                    type: 'minus',
+                    amount: data.amount,
+                    category: data.category || 'other',
+                    note: data.note,
+                    userId: interaction.user.id,
+                    userName: data.nick,
+                    displayName: data.displayName,
+                    role: data.role,
+                    balanceAfter: newBalance,
+                    source: 'manual'
+                });
+
+                await updateFinanceCrmPanel();
+
                 const embed = new EmbedBuilder()
                     .setColor(0xff3333)
                     .setTitle('🔴 Hoffman Bank — Зняття коштів')
@@ -3220,6 +3611,7 @@ if (interaction.customId === 'lottery_admin_disable') {
                         `╚════════════════════╝\n\n` +
                         `👤 **Учасник:** ${data.nick}\n\n` +
                         `💵 **Сума:** \`${formatMoney(data.amount)}\`\n\n` +
+                        `📂 **Категорія:** ${data.categoryLabel || getBankCategoryLabel('minus', data.category)}\n\n` +
                         `📝 **Примітка:** ${data.note}\n\n` +
                         `━━━━━━━━━━━━━━━━━━━━\n\n` +
                         `💰 **Баланс сейфу:**\n` +
@@ -3232,7 +3624,7 @@ if (interaction.customId === 'lottery_admin_disable') {
 
                 await logAction(
                     '📉 Зняття коштів',
-                    `👤 Виконав: **${data.displayName}**\n👤 Учасник: **${data.nick}**\n💵 Сума: **${formatMoney(data.amount)}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${data.note}`,
+                    `👤 Виконав: **${data.displayName}**\n👤 Учасник: **${data.nick}**\n💵 Сума: **${formatMoney(data.amount)}**\n📂 Категорія: **${data.categoryLabel || getBankCategoryLabel('minus', data.category)}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${data.note}`,
                     0xff3333
                 );
 
@@ -3706,6 +4098,7 @@ if (interaction.customId === 'lottery_admin_disable') {
                     .setDescription(
                         `👤 **Учасник:** ${nick}\n\n` +
                         `💵 **Сума:** \`${formatMoney(amount)}\`\n\n` +
+                        `📂 **Категорія:** ${categoryLabel}\n\n` +
                         `📝 **Примітка:** ${note}\n\n` +
                         `━━━━━━━━━━━━━━━━━━━━\n\n` +
                         `Натисніть **Підтвердити**, щоб виконати зняття.`
@@ -3736,6 +4129,21 @@ if (interaction.customId === 'lottery_admin_disable') {
             const newBalance = await changeBalance(amount);
             await addDailyStat('plus', amount);
 
+            await recordBankOperation({
+                type: 'plus',
+                amount,
+                category,
+                note,
+                userId: interaction.user.id,
+                userName: nick,
+                displayName,
+                role,
+                balanceAfter: newBalance,
+                source: 'manual'
+            });
+
+            await updateFinanceCrmPanel();
+
             const embed = new EmbedBuilder()
                 .setColor(0x00ff88)
                 .setTitle('🟢 Hoffman Bank — Поповнення сейфу')
@@ -3745,6 +4153,7 @@ if (interaction.customId === 'lottery_admin_disable') {
                     `╚════════════════════╝\n\n` +
                     `👤 **Учасник:** ${nick}\n\n` +
                     `💵 **Сума:** \`${formatMoney(amount)}\`\n\n` +
+                    `📂 **Категорія:** ${categoryLabel}\n\n` +
                     `📝 **Примітка:** ${note}\n\n` +
                     `━━━━━━━━━━━━━━━━━━━━\n\n` +
                     `💰 **Баланс сейфу:**\n` +
@@ -3757,7 +4166,7 @@ if (interaction.customId === 'lottery_admin_disable') {
 
             await logAction(
                 '📈 Поповнення сейфу',
-                `👤 Виконав: **${displayName}**\n👤 Учасник: **${nick}**\n💵 Сума: **${formatMoney(amount)}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${note}`,
+                `👤 Виконав: **${displayName}**\n👤 Учасник: **${nick}**\n💵 Сума: **${formatMoney(amount)}**\n📂 Категорія: **${categoryLabel}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${note}`,
                 0x00ff88
             );
 
