@@ -13,7 +13,8 @@ const {
     Events,
     MessageFlags,
     ButtonBuilder,
-    ButtonStyle
+    ButtonStyle,
+    StringSelectMenuBuilder
 } = require('discord.js');
 
 const { MongoClient, ObjectId } = require('mongodb');
@@ -121,55 +122,54 @@ let lotteryHistory;
 let dailyTasksPool;
 let dailyTaskSubmissions;
 let dailyTaskSettings;
-let bankTransactions;
 
 const commandCooldowns = new Map();
 const pendingWithdrawals = new Map();
 const pendingDailyTaskUploads = new Map();
 
-const BANK_PLUS_CATEGORIES = [
-    { key: 'family_earnings', label: '💼 Заробіток сімʼї' },
-    { key: 'voluntary', label: '🤝 Добровільний внесок' },
-    { key: 'quest', label: '🧩 Квест' },
-    { key: 'daily_task', label: '📅 Daily task' },
-    { key: 'compensation', label: '🎁 Повернення / компенсація' },
-    { key: 'other', label: '📦 Інше' }
-];
-
-const BANK_MINUS_CATEGORIES = [
-    { key: 'salary', label: '💵 Зарплата' },
-    { key: 'lottery', label: '🎰 Лотерея' },
-    { key: 'supply', label: '📦 Забезпечення' },
-    { key: 'transport_repair', label: '🚗 Транспорт / ремонт' },
-    { key: 'bonus', label: '🎁 Премія' },
-    { key: 'other', label: '📦 Інше' }
-];
-
-function getBankCategoryLabel(type, categoryKey) {
-    const categories = type === 'plus' ? BANK_PLUS_CATEGORIES : BANK_MINUS_CATEGORIES;
-    return categories.find(item => item.key === categoryKey)?.label || '📦 Інше';
-}
-
-async function recordBankTransaction({ type, amount, categoryKey, categoryLabel, userId, userName, note, balanceAfter }) {
-    if (!bankTransactions) return;
-
-    await bankTransactions.insertOne({
-        type,
-        amount,
-        categoryKey,
-        categoryLabel,
-        userId,
-        userName,
-        note,
-        balanceAfter,
-        date: Date.now(),
-        day: getKyivDate()
-    });
-}
-
-
 function formatMoney(amount) {
     return `$${Number(amount).toLocaleString('en-US')}`;
+}
+
+const BANK_PLUS_CATEGORIES = {
+    family_income: '💼 Заробіток сімʼї',
+    donation: '🤝 Добровільний внесок',
+    quest: '🧩 Квест',
+    daily_task: '📅 Daily Task',
+    compensation: '🎁 Повернення / компенсація',
+    other: '📦 Інше'
+};
+
+const BANK_MINUS_CATEGORIES = {
+    salary: '💵 Зарплата',
+    lottery: '🎰 Лотерея',
+    supply: '📦 Забезпечення',
+    transport: '🚗 Транспорт / ремонт',
+    bonus: '🎁 Премія',
+    other: '📦 Інше'
+};
+
+function getBankCategoryLabel(type, value) {
+    const categories = type === 'plus' ? BANK_PLUS_CATEGORIES : BANK_MINUS_CATEGORIES;
+    return categories[value] || '📦 Інше';
+}
+
+function createBankCategorySelect(type) {
+    const isPlus = type === 'plus';
+    const categories = isPlus ? BANK_PLUS_CATEGORIES : BANK_MINUS_CATEGORIES;
+
+    return new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId(`bank_category:${type}`)
+            .setPlaceholder(isPlus ? 'Оберіть категорію поповнення' : 'Оберіть категорію зняття')
+            .addOptions(
+                Object.entries(categories).map(([value, label]) => ({
+                    label: label.replace(/^[^\s]+\s/, ''),
+                    value,
+                    emoji: label.split(' ')[0]
+                }))
+            )
+    );
 }
 
 function getKyivDate() {
@@ -278,13 +278,11 @@ async function connectDB() {
     dailyTasksPool = db.collection('daily_tasks_pool');
     dailyTaskSubmissions = db.collection('daily_task_submissions');
     dailyTaskSettings = db.collection('daily_task_settings');
-    bankTransactions = db.collection('bank_transactions');
 
     await birthdays.createIndex({ nameLower: 1 }, { unique: true });
     await lotteryTickets.createIndex({ userId: 1 }, { unique: true });
     await dailyTasksPool.createIndex({ key: 1 }, { unique: true });
     await dailyTaskSubmissions.createIndex({ date: 1, userId: 1, difficulty: 1 });
-    await bankTransactions.createIndex({ date: 1, type: 1, categoryKey: 1 });
 
     await lotterySettings.updateOne(
         { name: 'weekly_lottery' },
@@ -2745,31 +2743,8 @@ async function showMyDailyTasks(interaction) {
 
 
 const commands = [
-    new SlashCommandBuilder()
-        .setName('total_plus')
-        .setDescription('Поповнення сейфу')
-        .addStringOption(option =>
-            option
-                .setName('category')
-                .setDescription('Категорія поповнення')
-                .setRequired(true)
-                .addChoices(
-                    ...BANK_PLUS_CATEGORIES.map(item => ({ name: item.label, value: item.key }))
-                )
-        ),
-
-    new SlashCommandBuilder()
-        .setName('total_minus')
-        .setDescription('Зняття коштів')
-        .addStringOption(option =>
-            option
-                .setName('category')
-                .setDescription('Категорія зняття')
-                .setRequired(true)
-                .addChoices(
-                    ...BANK_MINUS_CATEGORIES.map(item => ({ name: item.label, value: item.key }))
-                )
-        ),
+    new SlashCommandBuilder().setName('total_plus').setDescription('Поповнення сейфу'),
+    new SlashCommandBuilder().setName('total_minus').setDescription('Зняття коштів'),
     new SlashCommandBuilder().setName('balance').setDescription('Показати баланс сейфу'),
     new SlashCommandBuilder().setName('report').setDescription('Відправити звіт вручну'),
     new SlashCommandBuilder().setName('apply').setDescription('Подати заявку до сімʼї Hoffman'),
@@ -3005,31 +2980,57 @@ client.on('interactionCreate', async interaction => {
             }
 
             const isPlus = interaction.commandName === 'total_plus';
-            const categoryKey = interaction.options.getString('category') || 'other';
-            const categoryLabel = getBankCategoryLabel(isPlus ? 'plus' : 'minus', categoryKey);
+            const type = isPlus ? 'plus' : 'minus';
 
-            const modal = new ModalBuilder()
-                .setCustomId(`${isPlus ? 'modal_plus' : 'modal_minus'}:${categoryKey}`)
-                .setTitle(isPlus ? 'Поповнення сейфу' : 'Зняття коштів');
+            const embed = new EmbedBuilder()
+                .setColor(isPlus ? 0x00ff88 : 0xff3333)
+                .setTitle(isPlus ? '🟢 Поповнення сейфу' : '🔴 Зняття коштів')
+                .setDescription(
+                    `Спочатку оберіть категорію ${isPlus ? 'поповнення' : 'зняття'} нижче.
 
-            const amountInput = new TextInputBuilder()
-                .setCustomId('amount')
-                .setLabel('Сума')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true);
+` +
+                    `Після вибору відкриється форма, де потрібно буде вказати суму та примітку.`
+                )
+                .setFooter({ text: 'Hoffman Bank • Category Select' })
+                .setTimestamp();
 
-            const noteInput = new TextInputBuilder()
-                .setCustomId('note')
-                .setLabel(`Примітка • ${categoryLabel}`)
-                .setStyle(TextInputStyle.Paragraph)
-                .setRequired(false);
+            return await interaction.reply({
+                embeds: [embed],
+                components: [createBankCategorySelect(type)],
+                flags: MessageFlags.Ephemeral
+            });
+        }
 
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(amountInput),
-                new ActionRowBuilder().addComponents(noteInput)
-            );
+        if (interaction.isStringSelectMenu()) {
+            if (interaction.customId.startsWith('bank_category:')) {
+                const type = interaction.customId.split(':')[1];
+                const category = interaction.values[0];
+                const isPlus = type === 'plus';
+                const categoryLabel = getBankCategoryLabel(type, category);
 
-            return await interaction.showModal(modal);
+                const modal = new ModalBuilder()
+                    .setCustomId(`${isPlus ? 'modal_plus' : 'modal_minus'}:${category}`)
+                    .setTitle(isPlus ? 'Поповнення сейфу' : 'Зняття коштів');
+
+                const amountInput = new TextInputBuilder()
+                    .setCustomId('amount')
+                    .setLabel('Сума')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                const noteInput = new TextInputBuilder()
+                    .setCustomId('note')
+                    .setLabel(`Примітка • ${categoryLabel}`.slice(0, 45))
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setRequired(false);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(amountInput),
+                    new ActionRowBuilder().addComponents(noteInput)
+                );
+
+                return await interaction.showModal(modal);
+            }
         }
 
         if (interaction.isButton()) {
@@ -3209,16 +3210,6 @@ if (interaction.customId === 'lottery_admin_disable') {
 
                 const newBalance = await changeBalance(-data.amount);
                 await addDailyStat('minus', data.amount);
-                await recordBankTransaction({
-                    type: 'minus',
-                    amount: data.amount,
-                    categoryKey: data.categoryKey || 'other',
-                    categoryLabel: data.categoryLabel || '📦 Інше',
-                    userId: interaction.user.id,
-                    userName: data.displayName,
-                    note: data.note,
-                    balanceAfter: newBalance
-                });
 
                 const embed = new EmbedBuilder()
                     .setColor(0xff3333)
@@ -3229,7 +3220,6 @@ if (interaction.customId === 'lottery_admin_disable') {
                         `╚════════════════════╝\n\n` +
                         `👤 **Учасник:** ${data.nick}\n\n` +
                         `💵 **Сума:** \`${formatMoney(data.amount)}\`\n\n` +
-                        `🏷️ **Категорія:** ${data.categoryLabel || '📦 Інше'}\n\n` +
                         `📝 **Примітка:** ${data.note}\n\n` +
                         `━━━━━━━━━━━━━━━━━━━━\n\n` +
                         `💰 **Баланс сейфу:**\n` +
@@ -3242,7 +3232,7 @@ if (interaction.customId === 'lottery_admin_disable') {
 
                 await logAction(
                     '📉 Зняття коштів',
-                    `👤 Виконав: **${data.displayName}**\n👤 Учасник: **${data.nick}**\n💵 Сума: **${formatMoney(data.amount)}**\n🏷️ Категорія: **${data.categoryLabel || '📦 Інше'}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${data.note}`,
+                    `👤 Виконав: **${data.displayName}**\n👤 Учасник: **${data.nick}**\n💵 Сума: **${formatMoney(data.amount)}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${data.note}`,
                     0xff3333
                 );
 
@@ -3682,10 +3672,11 @@ if (interaction.customId === 'lottery_admin_disable') {
                 });
             }
 
-            const [bankModalType, bankCategoryKeyRaw] = interaction.customId.split(':');
-            const isPlus = bankModalType === 'modal_plus';
-            const categoryKey = bankCategoryKeyRaw || 'other';
-            const categoryLabel = getBankCategoryLabel(isPlus ? 'plus' : 'minus', categoryKey);
+            const modalParts = interaction.customId.split(':');
+            const isPlus = modalParts[0] === 'modal_plus';
+            const bankType = isPlus ? 'plus' : 'minus';
+            const category = modalParts[1] || 'other';
+            const categoryLabel = getBankCategoryLabel(bankType, category);
 
             const member = interaction.member;
             const displayName = member?.displayName || interaction.user.username;
@@ -3702,10 +3693,10 @@ if (interaction.customId === 'lottery_admin_disable') {
                     nick,
                     amount,
                     note,
-                    categoryKey,
-                    categoryLabel,
                     displayName,
                     role,
+                    category,
+                    categoryLabel,
                     createdAt: Date.now()
                 });
 
@@ -3715,7 +3706,6 @@ if (interaction.customId === 'lottery_admin_disable') {
                     .setDescription(
                         `👤 **Учасник:** ${nick}\n\n` +
                         `💵 **Сума:** \`${formatMoney(amount)}\`\n\n` +
-                        `🏷️ **Категорія:** ${categoryLabel}\n\n` +
                         `📝 **Примітка:** ${note}\n\n` +
                         `━━━━━━━━━━━━━━━━━━━━\n\n` +
                         `Натисніть **Підтвердити**, щоб виконати зняття.`
@@ -3745,16 +3735,6 @@ if (interaction.customId === 'lottery_admin_disable') {
 
             const newBalance = await changeBalance(amount);
             await addDailyStat('plus', amount);
-            await recordBankTransaction({
-                type: 'plus',
-                amount,
-                categoryKey,
-                categoryLabel,
-                userId: interaction.user.id,
-                userName: displayName,
-                note,
-                balanceAfter: newBalance
-            });
 
             const embed = new EmbedBuilder()
                 .setColor(0x00ff88)
@@ -3765,7 +3745,6 @@ if (interaction.customId === 'lottery_admin_disable') {
                     `╚════════════════════╝\n\n` +
                     `👤 **Учасник:** ${nick}\n\n` +
                     `💵 **Сума:** \`${formatMoney(amount)}\`\n\n` +
-                    `🏷️ **Категорія:** ${categoryLabel}\n\n` +
                     `📝 **Примітка:** ${note}\n\n` +
                     `━━━━━━━━━━━━━━━━━━━━\n\n` +
                     `💰 **Баланс сейфу:**\n` +
@@ -3778,7 +3757,7 @@ if (interaction.customId === 'lottery_admin_disable') {
 
             await logAction(
                 '📈 Поповнення сейфу',
-                `👤 Виконав: **${displayName}**\n👤 Учасник: **${nick}**\n💵 Сума: **${formatMoney(amount)}**\n🏷️ Категорія: **${categoryLabel}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${note}`,
+                `👤 Виконав: **${displayName}**\n👤 Учасник: **${nick}**\n💵 Сума: **${formatMoney(amount)}**\n💰 Новий баланс: **${formatMoney(newBalance)}**\n📌 Примітка: ${note}`,
                 0x00ff88
             );
 
