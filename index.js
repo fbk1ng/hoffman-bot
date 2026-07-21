@@ -76,7 +76,7 @@ const DEFAULT_DAILY_TASKS = [
     { key: 'easy_invite_person', difficulty: 'easy', rewardTickets: 1, text: 'Виконати два рейсу в компанії сім`ї (Hoffman LTD)' },
     { key: 'easy_help_member', difficulty: 'easy', rewardTickets: 1, text: 'Допомогти учаснику сімʼї виконати квест або БП' },
     { key: 'easy_repair_vehicle', difficulty: 'easy', rewardTickets: 1, text: 'Відремонтувати всі вузли на одному автомобілі' },
-    { key: 'easy_chip_to_safe', difficulty: 'easy', rewardTickets: 1, text: 'Покласти одну із частин мікросхеми/мікросхему до сейфу сім`ї },
+    { key: 'easy_chip_to_safe', difficulty: 'easy', rewardTickets: 1, text: 'Покласти одну із частин мікросхеми/мікросхему до сейфу сім`ї' },
     { key: 'easy_help_newbie_join', difficulty: 'easy', rewardTickets: 1, text: 'Допомогти новачку та запропонувати приєднатись до сімʼї' },
     { key: 'easy_family_screenshot', difficulty: 'easy', rewardTickets: 1, text: 'Зробити гарний скріншот із сімʼєю або членом сімʼї у грі' },
     { key: 'easy_join_activity', difficulty: 'easy', rewardTickets: 1, text: 'Взяти участь у будь-якій активності сімʼї' },
