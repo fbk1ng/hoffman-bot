@@ -14,7 +14,8 @@ const {
     MessageFlags,
     ButtonBuilder,
     ButtonStyle,
-    StringSelectMenuBuilder
+    StringSelectMenuBuilder,
+    Partials
 } = require('discord.js');
 
 const { MongoClient, ObjectId } = require('mongodb');
@@ -117,8 +118,10 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.DirectMessages,
         GatewayIntentBits.MessageContent
-    ]
+    ],
+    partials: [Partials.Channel]
 });
 
 let balances;
@@ -3820,7 +3823,7 @@ async function openDailyTaskSubmitModal(interaction, difficulty) {
     const proofInput = new TextInputBuilder()
         .setCustomId('daily_task_proof')
         .setLabel('Доказ текстом або посиланням')
-        .setPlaceholder('Можна залишити порожнім і після форми просто прикріпити скріншот у чат')
+        .setPlaceholder('Залиш порожнім, щоб бот запросив скріншот у особистих повідомленнях')
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(false);
 
@@ -3959,8 +3962,33 @@ async function handleDailyTaskSubmitModal(interaction, difficulty) {
     const comment = interaction.fields.getTextInputValue('daily_task_comment')?.trim() || '—';
 
     if (!proof) {
+        const dmEmbed = new EmbedBuilder()
+            .setColor(0xd4af37)
+            .setTitle('📸 Надсилання доказу Daily Task')
+            .setDescription(
+                `${getDifficultyLabel(difficulty)}\n\n` +
+                `📌 **Завдання:** ${task.text}\n` +
+                `🎟 **Нагорода:** +${task.rewardTickets} ticket(s)\n\n` +
+                `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                `Надішли **один скріншот у цей особистий чат** протягом 10 хвилин.\n` +
+                `Після отримання бот автоматично передасть його керівництву на перевірку.`
+            )
+            .setFooter({ text: 'Hoffman Family • Daily Tasks' })
+            .setTimestamp();
+
+        const dmMessage = await interaction.user.send({ embeds: [dmEmbed] }).catch(() => null);
+
+        if (!dmMessage) {
+            return await interaction.editReply({
+                content:
+                    '❌ Не вдалося написати тобі в особисті повідомлення.\n' +
+                    'Дозволь особисті повідомлення від учасників сервера та спробуй ще раз.\n\n' +
+                    'Або повторно відкрий форму й встав доказ текстом чи посиланням.'
+            });
+        }
+
         pendingDailyTaskUploads.set(interaction.user.id, {
-            channelId: interaction.channelId,
+            dmChannelId: dmMessage.channelId,
             date: settings.currentDate,
             difficulty,
             task,
@@ -3972,14 +4000,12 @@ async function handleDailyTaskSubmitModal(interaction, difficulty) {
             const pending = pendingDailyTaskUploads.get(interaction.user.id);
             if (pending && pending.expiresAt <= Date.now()) {
                 pendingDailyTaskUploads.delete(interaction.user.id);
+                interaction.user.send('⌛ Час очікування скріншота минув. Для здачі завдання натисни кнопку ще раз.').catch(() => null);
             }
         }, 10 * 60 * 1000 + 1000);
 
         return await interaction.editReply({
-            content:
-                '📎 Тепер просто відправ **скріншот файлом/картинкою в цей канал** протягом 10 хвилин.\n' +
-                'Бот сам забере прикріплений скрін і відправить завдання на перевірку.\n\n' +
-                'Якщо хочеш без скріну — заповни поле доказу текстом/посиланням у формі.'
+            content: '✅ Я написав тобі в особисті повідомлення. Надішли скріншот боту протягом 10 хвилин.'
         });
     }
 
@@ -4058,6 +4084,18 @@ async function approveDailyTask(interaction, submissionId) {
         0x00ff88
     );
 
+    const taskUser = await client.users.fetch(submission.userId).catch(() => null);
+    if (taskUser) {
+        const ticketData = await lotteryTickets.findOne({ userId: submission.userId });
+        await taskUser.send(
+            `🎉 **Завдання схвалено!**\n\n` +
+            `📌 ${submission.taskText}\n` +
+            `🎟 Нараховано: **+${submission.rewardTickets}**\n` +
+            `🎫 Квитків цього тижня: **${ticketData?.weeklyTickets || 0}**\n\n` +
+            `Перевірив: **${interaction.member.displayName}**`
+        ).catch(() => null);
+    }
+
     const oldEmbed = interaction.message.embeds[0];
     const newEmbed = EmbedBuilder.from(oldEmbed)
         .setColor(0x00ff88)
@@ -4119,6 +4157,16 @@ async function rejectDailyTask(interaction, submissionId) {
         `👤 Учасник: <@${submission.userId}>\n📌 Завдання: **${submission.taskText}**\n🛡 Відхилив: **${interaction.member.displayName}**`,
         0xff3333
     );
+
+    const taskUser = await client.users.fetch(submission.userId).catch(() => null);
+    if (taskUser) {
+        await taskUser.send(
+            `❌ **Завдання відхилено.**\n\n` +
+            `📌 ${submission.taskText}\n\n` +
+            `Перевірив: **${interaction.member.displayName}**\n` +
+            `Ти можеш повторно подати завдання, якщо воно ще актуальне.`
+        ).catch(() => null);
+    }
 
     const oldEmbed = interaction.message.embeds[0];
     const newEmbed = EmbedBuilder.from(oldEmbed)
@@ -4304,23 +4352,27 @@ client.once(Events.ClientReady, async () => {
 
 client.on('messageCreate', async message => {
     try {
-        if (message.author.bot || !message.guild) return;
+        if (message.author.bot || message.guild) return;
 
         const pending = pendingDailyTaskUploads.get(message.author.id);
         if (!pending) return;
 
         if (pending.expiresAt <= Date.now()) {
             pendingDailyTaskUploads.delete(message.author.id);
+            await message.reply('⌛ Час очікування скріншота минув. Натисни кнопку здачі завдання ще раз.').catch(() => null);
             return;
         }
 
-        if (message.channelId !== pending.channelId) return;
+        if (message.channelId !== pending.dmChannelId) return;
 
         const attachment = message.attachments.find(file =>
             file.contentType?.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(file.name || '')
         );
 
-        if (!attachment) return;
+        if (!attachment) {
+            await message.reply('📎 Надішли саме зображення або скріншот файлом.').catch(() => null);
+            return;
+        }
 
         const existing = await dailyTaskSubmissions.findOne({
             date: pending.date,
@@ -4335,7 +4387,8 @@ client.on('messageCreate', async message => {
             return;
         }
 
-        const member = await message.guild.members.fetch(message.author.id).catch(() => null);
+        const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
+        const member = guild ? await guild.members.fetch(message.author.id).catch(() => null) : null;
 
         await createDailyTaskReviewSubmission({
             userId: message.author.id,
@@ -4343,16 +4396,20 @@ client.on('messageCreate', async message => {
             difficulty: pending.difficulty,
             task: pending.task,
             date: pending.date,
-            proof: `Скріншот прикріплено користувачем у каналі <#${message.channelId}>`,
+            proof: 'Скріншот надіслано боту в особистих повідомленнях',
             comment: pending.comment,
             imageUrl: attachment.url
         });
 
         pendingDailyTaskUploads.delete(message.author.id);
 
-        await message.reply('✅ Скріншот отримано. Завдання відправлено на перевірку керівництву.').catch(() => null);
+        await message.reply(
+            '✅ **Скріншот отримано.**\n\n' +
+            '⏳ Завдання передано керівництву на перевірку. Результат також надійде сюди в особисті повідомлення.'
+        ).catch(() => null);
     } catch (error) {
-        console.error('Daily task attachment error:', error);
+        console.error('Daily task DM attachment error:', error);
+        await message.reply('❌ Не вдалося обробити скріншот. Спробуй повторно здати завдання.').catch(() => null);
     }
 });
 
