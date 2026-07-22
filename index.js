@@ -609,22 +609,22 @@ async function createFinanceCrmEmbed() {
 
     return new EmbedBuilder()
         .setColor(HOFFMAN_RED)
-        .setTitle('🔴 HOFFMAN FINANCE CRM')
+        .setTitle('HOFFMAN FINANCE CRM')
         .setDescription(
             `**Фінансовий центр Hoffman Family**\n` +
             `Короткий контроль балансу, доходів і витрат сімʼї.\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
-            `⚪ **ПОТОЧНИЙ СТАН**\n\n` +
+            `**ПОТОЧНИЙ СТАН**\n\n` +
             `📅 Період: **${stats.startText} – ${stats.endText}**\n` +
             `💰 Баланс сейфу: \`${formatMoney(balance)}\`\n` +
             `📊 Результат тижня: \`${formatSignedMoney(stats.net)}\`\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
-            `🔴 **РУХ КОШТІВ**\n\n` +
+            `**РУХ КОШТІВ**\n\n` +
             `📈 Поповнено: \`${formatMoney(stats.plus)}\` — **${stats.plusCount} операцій**\n` +
             `📉 Витрачено: \`-${formatMoney(stats.minus)}\` — **${stats.minusCount} операцій**\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
-            `⚙️ **ПОПОВНЕННЯ ЗА КАТЕГОРІЯМИ**\n${formatCategoryStats(BANK_PLUS_CATEGORIES, stats.plusByCategory)}\n\n` +
-            `⚙️ **ВИТРАТИ ЗА КАТЕГОРІЯМИ**\n${formatCategoryStats(BANK_MINUS_CATEGORIES, stats.minusByCategory)}`
+            `**ПОПОВНЕННЯ ЗА КАТЕГОРІЯМИ**\n${formatCategoryStats(BANK_PLUS_CATEGORIES, stats.plusByCategory)}\n\n` +
+            `**ВИТРАТИ ЗА КАТЕГОРІЯМИ**\n${formatCategoryStats(BANK_MINUS_CATEGORIES, stats.minusByCategory)}`
         )
         .setFooter({ text: 'Hoffman Family • Finance Control' })
         .setTimestamp();
@@ -850,19 +850,19 @@ async function createPersonnelCrmEmbed() {
 
     return new EmbedBuilder()
         .setColor(HOFFMAN_RED)
-        .setTitle('🔴 HOFFMAN PERSONNEL CRM')
+        .setTitle('HOFFMAN PERSONNEL CRM')
         .setDescription(
             `**Кадровий центр Hoffman Family**\n` +
             `Контроль заявок, підвищень і змін у складі сімʼї.\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
-            `⚪ **ЗАЯВКИ ЗА ТИЖДЕНЬ**\n\n` +
+            `**ЗАЯВКИ ЗА ТИЖДЕНЬ**\n\n` +
             `📅 Період: **${stats.startText} – ${stats.endText}**\n` +
             `📨 Подано: **${stats.submitted}**\n` +
             `✅ Схвалено: **${stats.approved}**\n` +
             `❌ Відхилено: **${stats.rejected}**\n` +
             `📊 Відсоток схвалення: **${stats.approvalRate}%**\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
-            `🔴 **КАДРОВІ ЗМІНИ**\n\n` +
+            `**КАДРОВІ ЗМІНИ**\n\n` +
             `⬆️ Підвищення: **${stats.promotions}**\n` +
             `⬇️ Пониження: **${stats.demotions}**\n` +
             `🚪 Виключення / вибуття: **${stats.removals}**\n\n` +
@@ -1212,7 +1212,7 @@ async function getCareerWeeklyStats() {
 function createCareerPublicEmbed() {
     return new EmbedBuilder()
         .setColor(HOFFMAN_RED)
-        .setTitle('🔴 HOFFMAN CAREER CENTER')
+        .setTitle('HOFFMAN CAREER CENTER')
         .setDescription(
             `**Твій розвиток у Hoffman Family починається тут.**\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
@@ -1292,15 +1292,15 @@ async function createCareerCrmEmbed() {
 
     return new EmbedBuilder()
         .setColor(HOFFMAN_RED)
-        .setTitle('🔴 HOFFMAN CAREER CRM')
+        .setTitle('HOFFMAN CAREER CRM')
         .setDescription(
             `**Founder Control • Карʼєрні заявки Hoffman Family**\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
-            `⚪ **СТАН ПРИЙОМУ ЗАЯВОК**\n\n` +
+            `**СТАН ПРИЙОМУ ЗАЯВОК**\n\n` +
             `⬆️ Підвищення: ${settings.promotionOpen ? '🟢 **відкрито**' : '🔴 **закрито**'}\n` +
             `👔 Заступники: ${settings.deputyOpen ? '🟢 **відкрито**' : '🔴 **закрито**'}\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
-            `🔴 **СТАТИСТИКА ЗА ТИЖДЕНЬ**\n\n` +
+            `**СТАТИСТИКА ЗА ТИЖДЕНЬ**\n\n` +
             `📅 ${stats.startText} – ${stats.endText}\n` +
             `📨 Подано всього: **${stats.submitted}**\n` +
             `⬆️ На підвищення: **${stats.promotionSubmitted}**\n` +
@@ -3110,7 +3110,7 @@ async function createLotteryCrmEmbed() {
         .setDescription(
             `**Панель керування щотижневим розіграшем**\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
-            `⚪ **ПОТОЧНИЙ СТАН**\n\n` +
+            `**ПОТОЧНИЙ СТАН**\n\n` +
             `📌 Система: ${settings.enabled ? '🟢 **увімкнена**' : '🔴 **вимкнена**'}\n` +
             `📅 Авторозіграш: **щонеділі о 21:00**\n` +
             `🎁 Активний приз:\n${getLotteryPrizeText(settings)}\n\n` +
