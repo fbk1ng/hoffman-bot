@@ -65,6 +65,12 @@ const FAMILY_ROLE_IDS = [ACCEPTED_ROLE_ID, RANK_9_ROLE_ID, RANK_10_ROLE_ID];
 
 const COOLDOWN_MS = 10 * 1000;
 
+// Hoffman visual style and Daily Tasks pool version.
+// Increase DAILY_TASKS_POOL_VERSION whenever DEFAULT_DAILY_TASKS is changed.
+const HOFFMAN_RED = 0x8B0000;
+const HOFFMAN_GRAY = 0x4A4D52;
+const DAILY_TASKS_POOL_VERSION = 2;
+
 const DEFAULT_QUESTS = [
     { key: 'tovarnyi_vybukh', name: 'Товарний вибух', reward: 1000000, cooldownHours: 24 },
     { key: 'dopomoha_hromadianam', name: 'Допомога громадянам', reward: 1000000, cooldownHours: 24 },
@@ -73,8 +79,8 @@ const DEFAULT_QUESTS = [
 
 const DEFAULT_DAILY_TASKS = [
     // Easy tasks — +1 ticket
-    { key: 'easy_advertise_family', difficulty: 'easy', rewardTickets: 1, text: 'Зробити рекламу сімʼї будь-яким чином (Оголошення в самій грі або в діскорд сервері Quant' },
-    { key: 'easy_invite_person', difficulty: 'easy', rewardTickets: 1, text: 'Виконати два рейсу в компанії сім`ї (Hoffman LTD)' },
+    { key: 'easy_advertise_family', difficulty: 'easy', rewardTickets: 1, text: 'Зробити рекламу сімʼї будь-яким чином (оголошення у грі або на Discord-сервері Quant)' },
+    { key: 'easy_invite_person', difficulty: 'easy', rewardTickets: 1, text: 'Виконати два рейси у компанії сімʼї (Hoffman LTD)' },
     { key: 'easy_help_member', difficulty: 'easy', rewardTickets: 1, text: 'Допомогти учаснику сімʼї виконати квест або БП' },
     { key: 'easy_repair_vehicle', difficulty: 'easy', rewardTickets: 1, text: 'Відремонтувати всі вузли на одному автомобілі' },
     { key: 'easy_chip_to_safe', difficulty: 'easy', rewardTickets: 1, text: 'Покласти одну із частин мікросхеми/мікросхему до сейфу сім`ї' },
@@ -82,7 +88,7 @@ const DEFAULT_DAILY_TASKS = [
     { key: 'easy_family_screenshot', difficulty: 'easy', rewardTickets: 1, text: 'Зробити гарний скріншот із сімʼєю або членом сімʼї у грі' },
     { key: 'easy_join_activity', difficulty: 'easy', rewardTickets: 1, text: 'Взяти участь у будь-якій активності сімʼї' },
     { key: 'easy_complete_family_quest', difficulty: 'easy', rewardTickets: 1, text: 'Взяти участь у сімейному квесті' },
-    { key: 'easy_evening_online', difficulty: 'easy', rewardTickets: 1, text: 'Виконати один рейс в компанії сім`ї (Hoffman LTD)' },
+    { key: 'easy_evening_online', difficulty: 'easy', rewardTickets: 1, text: 'Виконати один рейс у компанії сімʼї (Hoffman LTD)' },
     { key: 'easy_house_photo', difficulty: 'easy', rewardTickets: 1, text: 'Зробити гарне фото на фоні сімейного будинку або подвірʼя і виставити його в галерею' },
     { key: 'easy_hug_member', difficulty: 'easy', rewardTickets: 1, text: 'Зробити вклад в сімʼю від 15.000$' },
     { key: 'easy_family_contribution_10k', difficulty: 'easy', rewardTickets: 1, text: 'Зробити вклад в сімʼю від 10.000$' },
@@ -90,9 +96,9 @@ const DEFAULT_DAILY_TASKS = [
     // Medium tasks — +2 tickets
     { key: 'medium_two_quests_day', difficulty: 'medium', rewardTickets: 2, text: 'Взяти участь у двох квестах за день' },
     { key: 'medium_help_recruitment', difficulty: 'medium', rewardTickets: 2, text: 'Допомогти провести набір у сімʼю' },
-    { key: 'medium_active_recruit', difficulty: 'medium', rewardTickets: 2, text: 'Виконати п`ять рейсів в компанії сім`ї (Hoffman LTD)' },
-    { key: 'medium_small_activity', difficulty: 'medium', rewardTickets: 2, text: 'Виконати сім рейсів в компанії сім`ї (Hoffman LTD)' },
-    { key: 'medium_transport_logistics', difficulty: 'medium', rewardTickets: 2, text: 'Зробити дві реклами сімʼї будь-яким чином (Оголошення в самій грі або в діскорд сервері Quant' },
+    { key: 'medium_active_recruit', difficulty: 'medium', rewardTickets: 2, text: 'Виконати пʼять рейсів у компанії сімʼї (Hoffman LTD)' },
+    { key: 'medium_small_activity', difficulty: 'medium', rewardTickets: 2, text: 'Виконати сім рейсів у компанії сімʼї (Hoffman LTD)' },
+    { key: 'medium_transport_logistics', difficulty: 'medium', rewardTickets: 2, text: 'Зробити дві реклами сімʼї будь-яким чином (оголошення у грі або на Discord-сервері Quant)' },
     { key: 'medium_two_hours_online', difficulty: 'medium', rewardTickets: 2, text: 'Провести мінімум 2 години онлайн із сімʼєю' },
     { key: 'medium_team_hard_quest', difficulty: 'medium', rewardTickets: 2, text: 'Допомогти виконати складний квест разом із сімʼєю' },
     { key: 'medium_ad_series', difficulty: 'medium', rewardTickets: 2, text: 'Зробити вклад в сімʼю від 40.000$' },
@@ -103,15 +109,15 @@ const DEFAULT_DAILY_TASKS = [
     // Hard tasks — +3 tickets
     { key: 'hard_full_recruitment', difficulty: 'hard', rewardTickets: 3, text: 'Провести повноцінний набір у сімʼю через оголошення в новини: “Сім`я Hoffman шукає далеких родичів. Очікуємо біля будинку №347.”' },
     { key: 'hard_family_contribution_50k', difficulty: 'hard', rewardTickets: 3, text: 'Зробити вклад в сімʼю від 70.000$' },
-    { key: 'hard_convoy_trip', difficulty: 'hard', rewardTickets: 3, text: 'Виконати 10 рейсів в компанії сім`ї (Hoffman LTD)' },
-    { key: 'hard_multiple_quests', difficulty: 'hard', rewardTickets: 3, text: 'Виконати 15 рейсів в компанії сім`ї (Hoffman LTD)' },
+    { key: 'hard_convoy_trip', difficulty: 'hard', rewardTickets: 3, text: 'Виконати 10 рейсів у компанії сімʼї (Hoffman LTD)' },
+    { key: 'hard_multiple_quests', difficulty: 'hard', rewardTickets: 3, text: 'Виконати 15 рейсів у компанії сімʼї (Hoffman LTD)' },
     { key: 'hard_full_staff_activity', difficulty: 'hard', rewardTickets: 3, text: 'Провести вечірку на території будинку "На території будинку №347 проходить запальна вечірка. Запрошуємо всіх охочих!"' },
     { key: 'hard_important_help', difficulty: 'hard', rewardTickets: 3, text: 'Ти виграв щасливий білет! Просто натисни "Виконати" завдання і отримуй 3 квитки! Вітаю!' },
-    { key: 'hard_big_rp_team', difficulty: 'hard', rewardTickets: 3, text: 'Заправити всі транпортні засоби сім`ї' },
-    { key: 'hard_newbie_adaptation', difficulty: 'hard', rewardTickets: 3, text: 'Замовити їжу в будинок (Будь-який стак - піца, бургери) в кількості 10 штук' },
+    { key: 'hard_big_rp_team', difficulty: 'hard', rewardTickets: 3, text: 'Заправити всі транспортні засоби сімʼї' },
+    { key: 'hard_newbie_adaptation', difficulty: 'hard', rewardTickets: 3, text: 'Замовити до будинку 10 одиниць їжі одного виду (піца, бургери тощо)' },
     { key: 'hard_leadership_order', difficulty: 'hard', rewardTickets: 3, text: 'Зробити вклад в сімʼю від 100.000$' },
-    { key: 'hard_evening_activity', difficulty: 'hard', rewardTickets: 3, text: 'Зробити дві реклами сімʼї будь-яким чином (Оголошення в самій грі або в діскорд сервері Quant' },
-    { key: 'hard_complex_rp', difficulty: 'hard', rewardTickets: 3, text: 'Виконати 20 рейсів в компанії сім`ї (Hoffman LTD)' }
+    { key: 'hard_evening_activity', difficulty: 'hard', rewardTickets: 3, text: 'Зробити дві реклами сімʼї будь-яким чином (оголошення у грі або на Discord-сервері Quant)' },
+    { key: 'hard_complex_rp', difficulty: 'hard', rewardTickets: 3, text: 'Виконати 20 рейсів у компанії сімʼї (Hoffman LTD)' }
 ];
 
 const client = new Client({
@@ -356,10 +362,24 @@ async function connectDB() {
         { upsert: true }
     );
 
+    // Synchronize task texts, difficulty and rewards from code with MongoDB.
+    // The enabled flag of existing tasks is preserved, so manual disabling is not overwritten.
     for (const task of DEFAULT_DAILY_TASKS) {
         await dailyTasksPool.updateOne(
             { key: task.key },
-            { $setOnInsert: { ...task, enabled: true, createdAt: Date.now() } },
+            {
+                $set: {
+                    difficulty: task.difficulty,
+                    rewardTickets: task.rewardTickets,
+                    text: task.text,
+                    updatedAt: Date.now()
+                },
+                $setOnInsert: {
+                    key: task.key,
+                    enabled: true,
+                    createdAt: Date.now()
+                }
+            },
             { upsert: true }
         );
     }
@@ -371,11 +391,32 @@ async function connectDB() {
                 name: 'daily_tasks',
                 panelMessageId: null,
                 currentDate: null,
-                activeTasks: null
+                activeTasks: null,
+                poolVersion: 0
             }
         },
         { upsert: true }
     );
+
+    const currentDailyTaskSettings = await dailyTaskSettings.findOne({ name: 'daily_tasks' });
+
+    // Regenerate the active set only once when the pool version changes.
+    // Regular bot restarts will not reshuffle the same day's tasks.
+    if ((currentDailyTaskSettings?.poolVersion || 0) !== DAILY_TASKS_POOL_VERSION) {
+        await dailyTaskSettings.updateOne(
+            { name: 'daily_tasks' },
+            {
+                $set: {
+                    currentDate: null,
+                    activeTasks: null,
+                    poolVersion: DAILY_TASKS_POOL_VERSION,
+                    poolUpdatedAt: Date.now()
+                }
+            }
+        );
+
+        console.log(`Daily Tasks pool synchronized to version ${DAILY_TASKS_POOL_VERSION}.`);
+    }
 
     for (const quest of DEFAULT_QUESTS) {
         await questDefinitions.updateOne(
@@ -567,24 +608,25 @@ async function createFinanceCrmEmbed() {
     const stats = await getFinanceWeeklyStats();
 
     return new EmbedBuilder()
-        .setColor(0xd4af37)
-        .setTitle('💰 HOFFMAN FINANCE CRM')
+        .setColor(HOFFMAN_RED)
+        .setTitle('🔴 HOFFMAN FINANCE CRM')
         .setDescription(
-            `🏛 **Панель фінансового керівництва Hoffman Family**\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `📅 **Період:** ${stats.startText} – ${stats.endText}\n` +
-            `💰 **Поточний баланс сейфу:** \`${formatMoney(balance)}\`\n\n` +
-            `📈 **Поповнено за тиждень:** \`${formatMoney(stats.plus)}\`\n` +
-            `📉 **Витрачено за тиждень:** \`-${formatMoney(stats.minus)}\`\n` +
-            `📊 **Різниця:** \`${formatSignedMoney(stats.net)}\`\n\n` +
-            `📌 **Кількість операцій:**\n` +
-            `📈 Поповнень: **${stats.plusCount}**\n` +
-            `📉 Зняттів: **${stats.minusCount}**\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `📂 **Поповнення по категоріях:**\n${formatCategoryStats(BANK_PLUS_CATEGORIES, stats.plusByCategory)}\n\n` +
-            `📂 **Витрати по категоріях:**\n${formatCategoryStats(BANK_MINUS_CATEGORIES, stats.minusByCategory)}`
+            `**Фінансовий центр Hoffman Family**\n` +
+            `Короткий контроль балансу, доходів і витрат сімʼї.\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚪ **ПОТОЧНИЙ СТАН**\n\n` +
+            `📅 Період: **${stats.startText} – ${stats.endText}**\n` +
+            `💰 Баланс сейфу: \`${formatMoney(balance)}\`\n` +
+            `📊 Результат тижня: \`${formatSignedMoney(stats.net)}\`\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `🔴 **РУХ КОШТІВ**\n\n` +
+            `📈 Поповнено: \`${formatMoney(stats.plus)}\` — **${stats.plusCount} операцій**\n` +
+            `📉 Витрачено: \`-${formatMoney(stats.minus)}\` — **${stats.minusCount} операцій**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚙️ **ПОПОВНЕННЯ ЗА КАТЕГОРІЯМИ**\n${formatCategoryStats(BANK_PLUS_CATEGORIES, stats.plusByCategory)}\n\n` +
+            `⚙️ **ВИТРАТИ ЗА КАТЕГОРІЯМИ**\n${formatCategoryStats(BANK_MINUS_CATEGORIES, stats.minusByCategory)}`
         )
-        .setFooter({ text: 'Hoffman Finance CRM • Weekly Control' })
+        .setFooter({ text: 'Hoffman Family • Finance Control' })
         .setTimestamp();
 }
 
@@ -807,25 +849,27 @@ async function createPersonnelCrmEmbed() {
     const stats = await getPersonnelWeeklyStats();
 
     return new EmbedBuilder()
-        .setColor(0x8B0000)
-        .setTitle('🧑‍💼 HOFFMAN PERSONNEL CRM')
+        .setColor(HOFFMAN_RED)
+        .setTitle('🔴 HOFFMAN PERSONNEL CRM')
         .setDescription(
-            `🏛 **Панель кадрового аудиту Hoffman Family**\n` +
-            `👤 **Напрямок:** набір, заявки, кадрові зміни, підвищення\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `📅 **Період:** ${stats.startText} – ${stats.endText}\n\n` +
-            `📨 **Подано заявок:** **${stats.submitted}**\n` +
-            `✅ **Схвалено заявок:** **${stats.approved}**\n` +
-            `❌ **Відхилено заявок:** **${stats.rejected}**\n` +
-            `📊 **Відсоток схвалення:** **${stats.approvalRate}%**\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `⬆️ **Підвищення:** **${stats.promotions}**\n` +
-            `⬇️ **Пониження:** **${stats.demotions}**\n` +
-            `🚪 **Виключення / вибуття:** **${stats.removals}**\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `📋 **Всього кадрових дій за тиждень:** **${stats.actions.length}**`
+            `**Кадровий центр Hoffman Family**\n` +
+            `Контроль заявок, підвищень і змін у складі сімʼї.\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚪ **ЗАЯВКИ ЗА ТИЖДЕНЬ**\n\n` +
+            `📅 Період: **${stats.startText} – ${stats.endText}**\n` +
+            `📨 Подано: **${stats.submitted}**\n` +
+            `✅ Схвалено: **${stats.approved}**\n` +
+            `❌ Відхилено: **${stats.rejected}**\n` +
+            `📊 Відсоток схвалення: **${stats.approvalRate}%**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `🔴 **КАДРОВІ ЗМІНИ**\n\n` +
+            `⬆️ Підвищення: **${stats.promotions}**\n` +
+            `⬇️ Пониження: **${stats.demotions}**\n` +
+            `🚪 Виключення / вибуття: **${stats.removals}**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚙️ Всього зафіксовано кадрових дій: **${stats.actions.length}**`
         )
-        .setFooter({ text: 'Hoffman Personnel CRM • Weekly Control' })
+        .setFooter({ text: 'Hoffman Family • Personnel Control' })
         .setTimestamp();
 }
 
@@ -1167,17 +1211,20 @@ async function getCareerWeeklyStats() {
 
 function createCareerPublicEmbed() {
     return new EmbedBuilder()
-        .setColor(0x8B0000)
-        .setTitle('⬆️ HOFFMAN CAREER CENTER')
+        .setColor(HOFFMAN_RED)
+        .setTitle('🔴 HOFFMAN CAREER CENTER')
         .setDescription(
-            `🏛 **Карʼєрний центр Hoffman Family**\n\n` +
-            `Тут учасники сімʼї можуть подати заявку на підвищення або заявити свою кандидатуру на посаду заступника.\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `⬆️ **Подати заявку на підвищення** — для отримання вищого рангу.\n` +
-            `👔 **Подати заявку на заступника** — для кандидатів до керівного складу.\n` +
-            `📋 **Вимоги** — ознайомитись з ієрархією та критеріями.\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `⚠️ Остаточне рішення по заявках приймає тільки **Founder**.`
+            `**Твій розвиток у Hoffman Family починається тут.**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚪ **ДОСТУПНІ МОЖЛИВОСТІ**\n\n` +
+            `⬆️ **Заявка на підвищення**\n` +
+            `Подай свої досягнення та кандидатуру на наступний ранг.\n\n` +
+            `👔 **Заявка на посаду заступника**\n` +
+            `Запропонуй свою кандидатуру до керівного складу сімʼї.\n\n` +
+            `📋 **Вимоги**\n` +
+            `Переглянь ієрархію та критерії оцінювання.\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `🔴 Остаточне рішення за кожною заявкою приймає **Founder**.`
         )
         .setImage(CAREER_PANEL_IMAGE_URL)
         .setFooter({ text: 'Hoffman Family • Career Center' })
@@ -1244,24 +1291,27 @@ async function createCareerCrmEmbed() {
     const stats = await getCareerWeeklyStats();
 
     return new EmbedBuilder()
-        .setColor(0x8B0000)
-        .setTitle('⬆️ HOFFMAN CAREER CRM')
+        .setColor(HOFFMAN_RED)
+        .setTitle('🔴 HOFFMAN CAREER CRM')
         .setDescription(
-            `🏛 **Панель керування заявками на підвищення**\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `📌 **Заявки на підвищення:** ${settings.promotionOpen ? '🟢 Відкрито' : '🔴 Закрито'}\n` +
-            `👔 **Заявки на заступника:** ${settings.deputyOpen ? '🟢 Відкрито' : '🔴 Закрито'}\n\n` +
-            `📅 **Період:** ${stats.startText} – ${stats.endText}\n\n` +
-            `📨 **Подано всього:** **${stats.submitted}**\n` +
-            `⬆️ **На підвищення:** **${stats.promotionSubmitted}**\n` +
-            `👔 **На заступника:** **${stats.deputySubmitted}**\n\n` +
-            `⏳ **На розгляді:** **${stats.pending}**\n` +
-            `✅ **Схвалено:** **${stats.approved}**\n` +
-            `❌ **Відхилено:** **${stats.rejected}**\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `⚠️ Рішення по заявках може приймати тільки **Founder / 10 ранг**.`
+            `**Founder Control • Карʼєрні заявки Hoffman Family**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚪ **СТАН ПРИЙОМУ ЗАЯВОК**\n\n` +
+            `⬆️ Підвищення: ${settings.promotionOpen ? '🟢 **відкрито**' : '🔴 **закрито**'}\n` +
+            `👔 Заступники: ${settings.deputyOpen ? '🟢 **відкрито**' : '🔴 **закрито**'}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `🔴 **СТАТИСТИКА ЗА ТИЖДЕНЬ**\n\n` +
+            `📅 ${stats.startText} – ${stats.endText}\n` +
+            `📨 Подано всього: **${stats.submitted}**\n` +
+            `⬆️ На підвищення: **${stats.promotionSubmitted}**\n` +
+            `👔 На заступника: **${stats.deputySubmitted}**\n\n` +
+            `⏳ На розгляді: **${stats.pending}**\n` +
+            `✅ Схвалено: **${stats.approved}**\n` +
+            `❌ Відхилено: **${stats.rejected}**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚙️ Рішення доступне тільки **Founder / 10 рангу**.`
         )
-        .setFooter({ text: 'Hoffman Career CRM • Founder Control' })
+        .setFooter({ text: 'Hoffman Family • Founder Control' })
         .setTimestamp();
 }
 
@@ -1845,29 +1895,27 @@ async function sendReport(manual = false) {
 
 function createApplicationPanelEmbed() {
     return new EmbedBuilder()
-        .setColor(0x8B0000)
-        .setTitle('🏛️ HOFFMAN FAMILY')
+        .setColor(HOFFMAN_RED)
+        .setTitle('🔴 HOFFMAN FAMILY')
         .setDescription(
-            `✨ **Вітаємо в Hoffman Family**\n\n` +
-            `Місці, де цінуються:\n` +
-            `◆ Активність\n` +
-            `◆ Вірність\n` +
-            `◆ Повага\n` +
-            `◆ Командна гра\n\n` +
-            `━━━━━━━━━━━━━━━\n\n` +
-            `📋 **Для вступу:**\n\n` +
-            `✅ Отримайте роль **Гість**\n` +
-            `📖 Ознайомтесь із правилами\n` +
-            `📨 Подайте заявку через кнопку нижче\n\n` +
-            `━━━━━━━━━━━━━━━\n\n` +
-            `⚠️ **Важливо:**\n` +
-            `• Анкету розглядає керівництво сім'ї\n` +
-            `• Заповнюйте заявку уважно\n` +
-            `• Повторний спам заявками заборонений\n\n` +
-            `━━━━━━━━━━━━━━━\n\n` +
-            `🔥 **Luxury • Loyalty • Respect** 🔥`
+            `**Не просто сімʼя. Спільнота, у якій кожен має значення.**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚪ **НАШІ ЦІННОСТІ**\n\n` +
+            `◆ Активність і командна гра\n` +
+            `◆ Вірність та взаємоповага\n` +
+            `◆ Допомога своїм\n` +
+            `◆ Спільний розвиток\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `🔴 **ЯК ПРИЄДНАТИСЯ**\n\n` +
+            `1. Отримай роль **Гість**\n` +
+            `2. Ознайомся з правилами\n` +
+            `3. Подай заявку через кнопку нижче\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚙️ Заповнюй анкету уважно. Заявку розглядає керівництво сімʼї.\n\n` +
+            `**Luxury • Loyalty • Respect**`
         )
         .setImage('https://cdn.discordapp.com/attachments/1510979053090242711/1517087759255343194/ChatGPT_Image_7_2026_._14_21_24.png')
+        .setFooter({ text: 'Hoffman Family • Recruitment Center' })
         .setTimestamp();
 }
 
@@ -2668,19 +2716,20 @@ async function createBirthdayPanelEmbed() {
     }
 
     return new EmbedBuilder()
-        .setColor(0xd4af37)
-        .setTitle('🎂 Hoffman Birthday System')
+        .setColor(HOFFMAN_RED)
+        .setTitle('🔴 HOFFMAN BIRTHDAY CENTER')
         .setDescription(
-            `Список днів народження учасників сімʼї Hoffman.\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `**Памʼятаємо важливі дати кожного учасника сімʼї.**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚪ **КАЛЕНДАР ДНІВ НАРОДЖЕННЯ**\n\n` +
             `${text}\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `📌 **Всього записів:** ${list.length}\n\n` +
-            `➕ **Додати** — внести новий день народження\n` +
-            `➖ **Видалити** — прибрати запис зі списку`
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `🔴 Всього записів: **${list.length}**\n\n` +
+            `➕ **Додати** — внести день народження\n` +
+            `➖ **Видалити** — прибрати запис`
         )
         .setImage('https://cdn.discordapp.com/attachments/1510979053090242711/1517095364862414930/ChatGPT_Image_18_._2026_._12_14_48.png')
-        .setFooter({ text: 'Hoffman Family • Birthday System' })
+        .setFooter({ text: 'Hoffman Family • Birthday Center' })
         .setTimestamp();
 }
 
@@ -2989,20 +3038,21 @@ async function createLotteryPanelEmbed() {
     const stats = await getLotteryStats();
 
     return new EmbedBuilder()
-        .setColor(0xd4af37)
-        .setTitle('🎰 HOFFMAN WEEKLY LOTTERY')
+        .setColor(HOFFMAN_RED)
+        .setTitle('🔴 HOFFMAN WEEKLY LOTTERY')
         .setDescription(
-            `🏛 **Щотижневий розіграш серед учасників Hoffman Family**\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `📅 **Розіграш:** щонеділі о **21:00**\n` +
-            `🎁 **Приз тижня:**\n${getLotteryPrizeText(settings)}\n\n` +
-            `🎟 **Як отримати квитки:**\n` +
-            `1 виконаний квест = **1 квиток**\n` +
-            `Якщо квест виконували разом — кожен учасник отримує по 1 квитку.\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `👥 **Учасників цього тижня:** ${stats.participants}\n` +
-            `🎟 **Квитків у розіграші:** ${stats.totalTickets}\n\n` +
-            `Натисніть кнопку нижче, щоб перевірити свої квитки.`
+            `**Виконуй завдання, збирай квитки та забирай приз тижня.**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚪ **ГОЛОВНА ІНФОРМАЦІЯ**\n\n` +
+            `📅 Розіграш: **щонеділі о 21:00**\n` +
+            `🎁 Приз тижня:\n${getLotteryPrizeText(settings)}\n\n` +
+            `🎟 Квитки нараховуються за виконані квести та Daily Tasks.\n` +
+            `Чим більше квитків — тим вищий шанс на перемогу.\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `🔴 **ПОТОЧНА СТАТИСТИКА**\n\n` +
+            `👥 Учасників: **${stats.participants}**\n` +
+            `🎟 Квитків у розіграші: **${stats.totalTickets}**\n\n` +
+            `⚙️ Перевір свої квитки кнопкою нижче.`
         )
         .setImage('https://cdn.discordapp.com/attachments/1510979053090242711/1517095365680168971/ChatGPT_Image_18_._2026_._11_58_55.png')
         .setFooter({ text: 'Hoffman Family • Weekly Lottery' })
@@ -3055,26 +3105,27 @@ async function createLotteryCrmEmbed() {
     const balance = await getBalance();
 
     return new EmbedBuilder()
-        .setColor(0xd4af37)
-        .setTitle('🎰 HOFFMAN LOTTERY CRM')
+        .setColor(HOFFMAN_RED)
+        .setTitle('🔴 HOFFMAN LOTTERY CRM')
         .setDescription(
-            `🏛 **Панель керування щотижневим розіграшем**\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `📌 **Статус:** ${settings.enabled ? '🟢 Увімкнено' : '🔴 Вимкнено'}\n` +
-            `📅 **Авторозіграш:** щонеділі о **21:00**\n` +
-            `🎁 **Активний приз:**\n${getLotteryPrizeText(settings)}\n\n` +
-            `👥 **Учасників:** ${stats.participants}\n` +
-            `🎟 **Квитків:** ${stats.totalTickets}\n` +
-            `💰 **Баланс банку:** ${formatMoney(balance)}\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `▶️ Провести зараз — запустити розіграш вручну\n` +
-            `🎁 Додати приз — авто / предмет / статус\n` +
-            `💰 Грошовий приз — налаштувати мін/макс\n` +
-            `➖ Забрати квитки — забрати квитки\n` +
-            `🎟 Видати квитки — додати квитки вручну\n` +
-            `🗑 Скинути — очистити квитки цього тижня`
+            `**Панель керування щотижневим розіграшем**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚪ **ПОТОЧНИЙ СТАН**\n\n` +
+            `📌 Система: ${settings.enabled ? '🟢 **увімкнена**' : '🔴 **вимкнена**'}\n` +
+            `📅 Авторозіграш: **щонеділі о 21:00**\n` +
+            `🎁 Активний приз:\n${getLotteryPrizeText(settings)}\n\n` +
+            `👥 Учасників: **${stats.participants}**\n` +
+            `🎟 Квитків: **${stats.totalTickets}**\n` +
+            `💰 Баланс банку: \`${formatMoney(balance)}\`\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `🔴 **КЕРУВАННЯ**\n\n` +
+            `▶️ Провести розіграш вручну\n` +
+            `🎁 Встановити предметний приз\n` +
+            `💰 Налаштувати грошовий приз\n` +
+            `🎟 Видати або забрати квитки\n` +
+            `🗑 Скинути квитки поточного тижня`
         )
-        .setFooter({ text: 'Hoffman Family • Lottery CRM' })
+        .setFooter({ text: 'Hoffman Family • Lottery Control' })
         .setTimestamp();
 }
 
@@ -3657,25 +3708,26 @@ async function createDailyTasksPanelEmbed() {
     const tasks = settings.activeTasks;
 
     return new EmbedBuilder()
-        .setColor(0xd4af37)
-        .setTitle('📅 HOFFMAN DAILY TASKS')
+        .setColor(HOFFMAN_RED)
+        .setTitle('🔴 HOFFMAN DAILY TASKS')
         .setDescription(
-            `🏛 **Щоденні завдання Hoffman Family**\n\n` +
-            `Виконуй завдання, кидай підтвердження та отримуй lottery-квитки після схвалення керівництвом.\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `🟢 **Легке завдання** — **+${tasks.easy.rewardTickets} ticket**\n` +
+            `**Три завдання щодня — обирай своє та заробляй квитки.**\n` +
+            `Після виконання натисни кнопку потрібного рівня. Доказ надсилається боту в особисті повідомлення.\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚪ **ЛЕГКЕ • +${tasks.easy.rewardTickets} КВИТОК**\n` +
             `${tasks.easy.text}\n` +
-            `✅ Схвалено сьогодні: **${stats.approvedByDifficulty.easy}**\n\n` +
-            `🟡 **Середнє завдання** — **+${tasks.medium.rewardTickets} tickets**\n` +
+            `Схвалено сьогодні: **${stats.approvedByDifficulty.easy}**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚙️ **СЕРЕДНЄ • +${tasks.medium.rewardTickets} КВИТКИ**\n` +
             `${tasks.medium.text}\n` +
-            `✅ Схвалено сьогодні: **${stats.approvedByDifficulty.medium}**\n\n` +
-            `🔴 **Складне завдання** — **+${tasks.hard.rewardTickets} tickets**\n` +
+            `Схвалено сьогодні: **${stats.approvedByDifficulty.medium}**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `🔴 **СКЛАДНЕ • +${tasks.hard.rewardTickets} КВИТКИ**\n` +
             `${tasks.hard.text}\n` +
-            `✅ Схвалено сьогодні: **${stats.approvedByDifficulty.hard}**\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `📌 **Дата:** ${settings.currentDate}\n` +
-            `⏳ **На перевірці:** ${stats.pendingTotal}\n\n` +
-            `Натисни кнопку потрібного рівня, щоб подати виконання.`
+            `Схвалено сьогодні: **${stats.approvedByDifficulty.hard}**\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `📅 Дата: **${settings.currentDate}**\n` +
+            `⏳ На перевірці: **${stats.pendingTotal}**`
         )
         .setImage('https://cdn.discordapp.com/attachments/1510979053090242711/1517095366124900422/ChatGPT_Image_18_._2026_._11_57_33.png')
         .setFooter({ text: 'Hoffman Family • Daily Tasks' })
