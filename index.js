@@ -57,6 +57,7 @@ const APPLICATION_REVIEW_CHANNEL_ID = '1501498789188341851';
 
 const GUEST_ROLE_ID = '1496709652866666586';
 const ACCEPTED_ROLE_ID = '1496709001356771429';
+const COMPANY_ROLE_ID = '1531942632710996098';
 const RANK_9_ROLE_ID = '1495997440333971507';
 const RANK_10_ROLE_ID = '1495997048669863966';
 
@@ -1914,9 +1915,11 @@ function createApplicationPanelEmbed() {
             `🔴 **ЯК ПРИЄДНАТИСЯ**\n\n` +
             `1. Отримай роль **Гість**\n` +
             `2. Ознайомся з правилами\n` +
-            `3. Подай заявку через кнопку нижче\n\n` +
+            `3. Обери напрямок та подай заявку\n\n` +
+            `🏠 **Hoffman Family** — вступ до основного складу сімʼї.\n` +
+            `🏢 **Hoffman LTD** — працевлаштування до компанії сімʼї.\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
-            `⚙️ Заповнюй анкету уважно. Заявку розглядає керівництво сімʼї.\n\n` +
+            `⚙️ Заповнюй анкету уважно. Заявки розглядає керівництво.\n\n` +
             `**Luxury • Loyalty • Respect**`
         )
         .setImage('https://cdn.discordapp.com/attachments/1510979053090242711/1517087759255343194/ChatGPT_Image_7_2026_._14_21_24.png')
@@ -1939,10 +1942,16 @@ function createApplicationPanelButton() {
             .setEmoji('📜'),
 
         new ButtonBuilder()
-            .setCustomId('open_application_modal')
-            .setLabel('Подати заявку')
+            .setCustomId('open_family_application_modal')
+            .setLabel('Заявка в сімʼю')
             .setStyle(ButtonStyle.Primary)
-            .setEmoji('📨')
+            .setEmoji('💌'),
+
+        new ButtonBuilder()
+            .setCustomId('open_company_application_modal')
+            .setLabel('Заявка до фірми')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('🏢')
     );
 }
 
@@ -1996,14 +2005,14 @@ async function openApplicationModal(interaction) {
 
     if (!hasRole(interaction.member, GUEST_ROLE_ID)) {
         return await interaction.reply({
-            content: '❌ Подавати заявку можуть тільки користувачі з роллю **Гість**.',
+            content: '❌ Подавати заявку в сімʼю можуть тільки користувачі з роллю **Гість**.',
             flags: MessageFlags.Ephemeral
         });
     }
 
     const modal = new ModalBuilder()
-        .setCustomId('hoffman_application')
-        .setTitle('Заявка до Hoffman');
+        .setCustomId('hoffman_family_application')
+        .setTitle('Заявка в Hoffman Family');
 
     const nickInput = new TextInputBuilder()
         .setCustomId('nick_static')
@@ -2011,16 +2020,11 @@ async function openApplicationModal(interaction) {
         .setStyle(TextInputStyle.Short)
         .setRequired(true);
 
-    const levelInput = new TextInputBuilder()
-        .setCustomId('game_level')
-        .setLabel('Ігровий рівень')
+    const levelAgeInput = new TextInputBuilder()
+        .setCustomId('level_age')
+        .setLabel('Ігровий рівень та реальний вік')
         .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-    const ageInput = new TextInputBuilder()
-        .setCustomId('real_age')
-        .setLabel('Реальний вік')
-        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Наприклад: 25 рівень, 22 роки')
         .setRequired(true);
 
     const onlineInput = new TextInputBuilder()
@@ -2029,19 +2033,89 @@ async function openApplicationModal(interaction) {
         .setStyle(TextInputStyle.Short)
         .setRequired(true);
 
+    const previousFamilyInput = new TextInputBuilder()
+        .setCustomId('previous_family')
+        .setLabel('В якій сімʼї були до цього?')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Якщо не були — вкажіть "Не був"')
+        .setRequired(true);
+
     const extraInput = new TextInputBuilder()
         .setCustomId('extra_info')
         .setLabel('Додаткова інформація')
         .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('Плюси/мінуси, біо, напрямок, скрін')
+        .setPlaceholder('Плюси/мінуси, біо, напрямок розвитку, посилання на статистику')
+        .setRequired(true);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(nickInput),
+        new ActionRowBuilder().addComponents(levelAgeInput),
+        new ActionRowBuilder().addComponents(onlineInput),
+        new ActionRowBuilder().addComponents(previousFamilyInput),
+        new ActionRowBuilder().addComponents(extraInput)
+    );
+
+    return await interaction.showModal(modal);
+}
+
+async function openCompanyApplicationModal(interaction) {
+    if (interaction.channelId !== APPLICATION_PUBLIC_CHANNEL_ID) {
+        return await interaction.reply({
+            content: '❌ Подати заявку можна тільки у спеціальному каналі.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const mayApply = hasRole(interaction.member, GUEST_ROLE_ID) || hasFamilyAccess(interaction.member);
+
+    if (!mayApply) {
+        return await interaction.reply({
+            content: '❌ Спочатку отримайте роль **Гість** через кнопку в панелі.',
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const modal = new ModalBuilder()
+        .setCustomId('hoffman_company_application')
+        .setTitle('Заявка до Hoffman LTD');
+
+    const nickInput = new TextInputBuilder()
+        .setCustomId('company_nick_static')
+        .setLabel('Nick Name #static')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const levelInput = new TextInputBuilder()
+        .setCustomId('company_game_level')
+        .setLabel('Ігровий рівень')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const onlineInput = new TextInputBuilder()
+        .setCustomId('company_daily_online')
+        .setLabel('Добовий онлайн')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const experienceInput = new TextInputBuilder()
+        .setCustomId('company_experience')
+        .setLabel('Досвід роботи у компаніях')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('Якщо досвіду немає — вкажіть "Немає"')
+        .setRequired(true);
+
+    const reasonInput = new TextInputBuilder()
+        .setCustomId('company_reason')
+        .setLabel('Чому хочете працювати в Hoffman LTD?')
+        .setStyle(TextInputStyle.Paragraph)
         .setRequired(true);
 
     modal.addComponents(
         new ActionRowBuilder().addComponents(nickInput),
         new ActionRowBuilder().addComponents(levelInput),
-        new ActionRowBuilder().addComponents(ageInput),
         new ActionRowBuilder().addComponents(onlineInput),
-        new ActionRowBuilder().addComponents(extraInput)
+        new ActionRowBuilder().addComponents(experienceInput),
+        new ActionRowBuilder().addComponents(reasonInput)
     );
 
     return await interaction.showModal(modal);
@@ -2049,8 +2123,16 @@ async function openApplicationModal(interaction) {
 
 async function sendApplicationDM(user, approved) {
     const text = approved
-        ? `🏛 Вітаємо, ваша заявка до сімʼї Hoffman була схвалена!\n\n📌 Найближчим часом з вами звʼяжеться один із заступників сімʼї для подальшої співбесіди та введення в курс справ.\n\nПросимо залишатись на звʼязку та перевіряти приватні повідомлення.\n\nЛаскаво просимо до Hoffman Family. 🔥`
-        : `🏛 Ваша заявка до сімʼї Hoffman була відхилена.\n\nПричини можуть бути різними:\n• недостатня активність\n• невідповідність вимогам\n• некоректне заповнення анкети\n• або інші внутрішні фактори\n\nВи можете подати повторну заявку пізніше.\n\nБажаємо успіхів та гарної гри. 🤝`;
+        ? `🏛 **Вітаємо!**\n\nВашу заявку до **Hoffman Family** було схвалено.\n\nРоль учасника сімʼї вже видана автоматично, а роль **Гість** прибрана.\n\nЛаскаво просимо до Hoffman Family! 🔥\n\n━━━━━━━━━━━━━━━━━━━━\n\n💼 **Додаткова можливість**\n\nЯкщо бажаєте працювати, виконувати рейси та допомагати розвитку сімейної компанії, подайте окрему заявку до **Hoffman LTD**.\n\nДля цього відкрийте канал подачі заявок і натисніть кнопку **«Заявка до фірми»**.`
+        : `🏛 Вашу заявку до сімʼї Hoffman було розглянуто.\n\nНа жаль, цього разу її було відхилено.\n\nПричиною може бути недостатня активність, невідповідність вимогам або неповне заповнення анкети.\n\nВи можете подати повторну заявку пізніше.\n\nБажаємо успіхів та гарної гри. 🤝`;
+
+    await user.send(text).catch(() => null);
+}
+
+async function sendCompanyApplicationDM(user, approved) {
+    const text = approved
+        ? `🏢 **Вітаємо!**\n\nВашу заявку до **Hoffman LTD** було схвалено.\n\nВас офіційно прийнято до компанії, роль працівника видана автоматично, а роль **Гість** прибрана.\n\n💼 Виконуйте рейси, беріть участь у житті компанії та допомагайте розвитку Hoffman Family.\n\nБажаємо успіхів і продуктивної роботи!\n\n**Hoffman LTD**`
+        : `🏢 Вашу заявку до **Hoffman LTD** було розглянуто.\n\nНа жаль, цього разу її не було схвалено.\n\nРекомендуємо підвищити активність, отримати більше ігрового досвіду та подати заявку повторно пізніше.\n\nБажаємо успіхів і гарної гри. 🤝`;
 
     await user.send(text).catch(() => null);
 }
@@ -4894,8 +4976,12 @@ client.on('interactionCreate', async interaction => {
                 });
             }
             
-            if (interaction.customId === 'open_application_modal') {
+            if (interaction.customId === 'open_family_application_modal' || interaction.customId === 'open_application_modal') {
                 return await openApplicationModal(interaction);
+            }
+
+            if (interaction.customId === 'open_company_application_modal') {
+                return await openCompanyApplicationModal(interaction);
             }
 
             if (interaction.customId === 'birthday_add') {
@@ -5155,7 +5241,16 @@ if (interaction.customId === 'lottery_admin_disable') {
                 return await rejectDailyTask(interaction, submissionId);
             }
 
-            if (!['application_approve', 'application_reject'].includes(interaction.customId)) return;
+            const applicationDecisionIds = [
+                'application_approve',
+                'application_reject',
+                'family_application_approve',
+                'family_application_reject',
+                'company_application_approve',
+                'company_application_reject'
+            ];
+
+            if (!applicationDecisionIds.includes(interaction.customId)) return;
 
             if (!hasReviewAccess(interaction.member)) {
                 return await interaction.reply({
@@ -5164,46 +5259,60 @@ if (interaction.customId === 'lottery_admin_disable') {
                 });
             }
 
-            const approved = interaction.customId === 'application_approve';
+            const approved = interaction.customId.endsWith('_approve');
+            const isCompanyApplication = interaction.customId.startsWith('company_');
             const oldEmbed = interaction.message.embeds[0];
 
-            const userMention = oldEmbed.description?.match(/<@(\d+)>/);
+            const userMention = oldEmbed.description?.match(/<@!?(\d+)>/);
             const applicantId = userMention ? userMention[1] : null;
 
             if (approved && applicantId) {
                 const guildMember = await interaction.guild.members.fetch(applicantId).catch(() => null);
 
                 if (guildMember) {
-                    await guildMember.roles.add(ACCEPTED_ROLE_ID).catch(() => null);
+                    const roleToAdd = isCompanyApplication ? COMPANY_ROLE_ID : ACCEPTED_ROLE_ID;
+                    await guildMember.roles.add(roleToAdd).catch(() => null);
                     await guildMember.roles.remove(GUEST_ROLE_ID).catch(() => null);
                 }
             }
 
             if (applicantId) {
                 const applicantUser = await client.users.fetch(applicantId).catch(() => null);
+
                 if (applicantUser) {
-                    await sendApplicationDM(applicantUser, approved);
+                    if (isCompanyApplication) {
+                        await sendCompanyApplicationDM(applicantUser, approved);
+                    } else {
+                        await sendApplicationDM(applicantUser, approved);
+                    }
                 }
             }
-
 
             await recordPersonnelAction({
                 type: approved ? 'application_approved' : 'application_rejected',
                 targetId: applicantId,
                 targetName: applicantId ? `<@${applicantId}>` : 'Невідомий кандидат',
-                oldRank: approved ? 'Гість' : 'Кандидат',
-                newRank: approved ? 'Учасник Hoffman Family' : 'Відхилено',
-                reason: approved ? 'Заявку схвалено керівництвом' : 'Заявку відхилено керівництвом',
+                oldRank: approved ? 'Гість / кандидат' : 'Кандидат',
+                newRank: approved
+                    ? (isCompanyApplication ? 'Працівник Hoffman LTD' : 'Учасник Hoffman Family')
+                    : 'Відхилено',
+                reason: approved
+                    ? (isCompanyApplication ? 'Заявку до Hoffman LTD схвалено' : 'Заявку до Hoffman Family схвалено')
+                    : (isCompanyApplication ? 'Заявку до Hoffman LTD відхилено' : 'Заявку до Hoffman Family відхилено'),
                 performedBy: interaction.member?.displayName || interaction.user.username,
                 performedById: interaction.user.id,
-                source: 'application'
+                source: isCompanyApplication ? 'company_application' : 'family_application'
             });
 
             await updatePersonnelCrmPanel();
 
             await logAction(
-                approved ? '✅ Заявку схвалено' : '❌ Заявку відхилено',
-                `👤 Кандидат: ${applicantId ? `<@${applicantId}>` : 'невідомо'}\n🛡 Розглянув: **${interaction.member.displayName}**`,
+                approved
+                    ? (isCompanyApplication ? '✅ Заявку до Hoffman LTD схвалено' : '✅ Заявку до Hoffman Family схвалено')
+                    : (isCompanyApplication ? '❌ Заявку до Hoffman LTD відхилено' : '❌ Заявку до Hoffman Family відхилено'),
+                `👤 Кандидат: ${applicantId ? `<@${applicantId}>` : 'невідомо'}\n` +
+                `${approved ? `🎭 Видана роль: <@&${isCompanyApplication ? COMPANY_ROLE_ID : ACCEPTED_ROLE_ID}>\n🧹 Роль Гість прибрана\n` : ''}` +
+                `🛡 Розглянув: **${interaction.member.displayName}**`,
                 approved ? 0x00ff88 : 0xff3333
             );
 
@@ -5211,24 +5320,27 @@ if (interaction.customId === 'lottery_admin_disable') {
                 .setColor(approved ? 0x00ff88 : 0xff3333)
                 .addFields({
                     name: approved ? '✅ Статус заявки' : '❌ Статус заявки',
-                    value: `${approved ? 'СХВАЛЕНО' : 'ВІДХИЛЕНО'}\nРозглянув: ${interaction.member.displayName}`
+                    value:
+                        `${approved ? 'СХВАЛЕНО' : 'ВІДХИЛЕНО'}\n` +
+                        `Розглянув: ${interaction.member.displayName}` +
+                        (approved ? `\nРоль видано автоматично.` : '')
                 })
                 .setFooter({
                     text: approved
-                        ? 'Hoffman Family • Application Approved'
-                        : 'Hoffman Family • Application Rejected'
+                        ? (isCompanyApplication ? 'Hoffman LTD • Application Approved' : 'Hoffman Family • Application Approved')
+                        : (isCompanyApplication ? 'Hoffman LTD • Application Rejected' : 'Hoffman Family • Application Rejected')
                 })
                 .setTimestamp();
 
             const disabledButtons = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
-                    .setCustomId('application_approve')
+                    .setCustomId(isCompanyApplication ? 'company_application_approve' : 'family_application_approve')
                     .setLabel('Схвалено')
                     .setStyle(ButtonStyle.Success)
                     .setDisabled(true),
 
                 new ButtonBuilder()
-                    .setCustomId('application_reject')
+                    .setCustomId(isCompanyApplication ? 'company_application_reject' : 'family_application_reject')
                     .setLabel('Відхилено')
                     .setStyle(ButtonStyle.Danger)
                     .setDisabled(true)
@@ -5480,27 +5592,33 @@ if (interaction.customId === 'lottery_admin_disable') {
                 return await handleDailyTaskSubmitModal(interaction, difficulty);
             }
 
-            if (interaction.customId === 'hoffman_application') {
+            if (interaction.customId === 'hoffman_family_application' || interaction.customId === 'hoffman_application') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+                if (!hasRole(interaction.member, GUEST_ROLE_ID)) {
+                    return await interaction.editReply({
+                        content: '❌ Подавати заявку в сімʼю можуть тільки користувачі з роллю **Гість**.'
+                    });
+                }
+
                 const nickStatic = interaction.fields.getTextInputValue('nick_static');
-                const gameLevel = interaction.fields.getTextInputValue('game_level');
-                const realAge = interaction.fields.getTextInputValue('real_age');
+                const levelAge = interaction.fields.getTextInputValue('level_age');
                 const dailyOnline = interaction.fields.getTextInputValue('daily_online');
+                const previousFamily = interaction.fields.getTextInputValue('previous_family');
                 const extraInfo = interaction.fields.getTextInputValue('extra_info');
 
                 const reviewChannel = await client.channels.fetch(APPLICATION_REVIEW_CHANNEL_ID);
 
                 const embed = new EmbedBuilder()
                     .setColor(0xd4af37)
-                    .setTitle('📥 Нова заявка до Hoffman')
+                    .setTitle('🏠 Нова заявка в Hoffman Family')
                     .setDescription(
                         `👤 **Discord:** <@${interaction.user.id}>\n\n` +
-                        `📝 **Nick:** ${nickStatic}\n\n` +
-                        `🎮 **Рівень:** ${gameLevel}\n\n` +
-                        `🎂 **Вік:** ${realAge}\n\n` +
-                        `⏰ **Онлайн:** ${dailyOnline}\n\n` +
-                        `📌 **Інформація:**\n${extraInfo}\n\n` +
+                        `📝 **Nick / Static:** ${nickStatic}\n\n` +
+                        `🎮 **Рівень та вік:** ${levelAge}\n\n` +
+                        `⏰ **Добовий онлайн:** ${dailyOnline}\n\n` +
+                        `🏠 **В якій сімʼї були до цього:** ${previousFamily}\n\n` +
+                        `📌 **Додаткова інформація:**\n${extraInfo}\n\n` +
                         `━━━━━━━━━━━━━━━━━━━━\n` +
                         `⏳ **Термін розгляду:** до 4 годин`
                     )
@@ -5509,47 +5627,126 @@ if (interaction.customId === 'lottery_admin_disable') {
 
                 const buttons = new ActionRowBuilder().addComponents(
                     new ButtonBuilder()
-                        .setCustomId('application_approve')
+                        .setCustomId('family_application_approve')
                         .setLabel('Схвалити')
                         .setStyle(ButtonStyle.Success)
                         .setEmoji('✅'),
 
                     new ButtonBuilder()
-                        .setCustomId('application_reject')
+                        .setCustomId('family_application_reject')
                         .setLabel('Відхилити')
                         .setStyle(ButtonStyle.Danger)
                         .setEmoji('❌')
                 );
 
                 await reviewChannel.send({
-                    content: `<@&1495997440333971507> <@&1495997048669863966>`,
+                    content: `<@&${RANK_9_ROLE_ID}> <@&${RANK_10_ROLE_ID}>`,
                     embeds: [embed],
                     components: [buttons]
                 });
-
 
                 await recordPersonnelAction({
                     type: 'application_submitted',
                     targetId: interaction.user.id,
                     targetName: nickStatic,
                     oldRank: 'Гість',
-                    newRank: 'На розгляді',
-                    reason: `Рівень: ${gameLevel}; Вік: ${realAge}; Онлайн: ${dailyOnline}`,
+                    newRank: 'На розгляді — Hoffman Family',
+                    reason: `Рівень/вік: ${levelAge}; Онлайн: ${dailyOnline}; Попередня сімʼя: ${previousFamily}`,
                     performedBy: interaction.member?.displayName || interaction.user.username,
                     performedById: interaction.user.id,
-                    source: 'application'
+                    source: 'family_application'
                 });
 
                 await updatePersonnelCrmPanel();
 
                 await logAction(
-                    '📨 Нова заявка',
-                    `👤 Кандидат: <@${interaction.user.id}>\n📝 Nick: **${nickStatic}**\n🎮 Рівень: **${gameLevel}**`,
+                    '📨 Нова заявка в Hoffman Family',
+                    `👤 Кандидат: <@${interaction.user.id}>\n📝 Nick: **${nickStatic}**\n🏠 Попередня сімʼя: **${previousFamily}**`,
                     0xd4af37
                 );
 
                 return await interaction.editReply({
-                    content: '✅ Заявка успішно подана. Термін розгляду — до 4 годин.'
+                    content: '✅ Заявка в **Hoffman Family** успішно подана. Термін розгляду — до 4 годин.'
+                });
+            }
+
+            if (interaction.customId === 'hoffman_company_application') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                const mayApply = hasRole(interaction.member, GUEST_ROLE_ID) || hasFamilyAccess(interaction.member);
+
+                if (!mayApply) {
+                    return await interaction.editReply({
+                        content: '❌ Спочатку отримайте роль **Гість** через кнопку в панелі.'
+                    });
+                }
+
+                const nickStatic = interaction.fields.getTextInputValue('company_nick_static');
+                const gameLevel = interaction.fields.getTextInputValue('company_game_level');
+                const dailyOnline = interaction.fields.getTextInputValue('company_daily_online');
+                const experience = interaction.fields.getTextInputValue('company_experience');
+                const reason = interaction.fields.getTextInputValue('company_reason');
+
+                const reviewChannel = await client.channels.fetch(APPLICATION_REVIEW_CHANNEL_ID);
+
+                const embed = new EmbedBuilder()
+                    .setColor(HOFFMAN_RED)
+                    .setTitle('🏢 Нова заявка до Hoffman LTD')
+                    .setDescription(
+                        `👤 **Discord:** <@${interaction.user.id}>\n\n` +
+                        `📝 **Nick / Static:** ${nickStatic}\n\n` +
+                        `🎮 **Ігровий рівень:** ${gameLevel}\n\n` +
+                        `⏰ **Добовий онлайн:** ${dailyOnline}\n\n` +
+                        `💼 **Досвід роботи у компаніях:**\n${experience}\n\n` +
+                        `📌 **Чому хоче працювати в Hoffman LTD:**\n${reason}\n\n` +
+                        `━━━━━━━━━━━━━━━━━━━━\n` +
+                        `⏳ **Статус:** очікує розгляду`
+                    )
+                    .setFooter({ text: 'Hoffman LTD • Employment Application' })
+                    .setTimestamp();
+
+                const buttons = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('company_application_approve')
+                        .setLabel('Схвалити')
+                        .setStyle(ButtonStyle.Success)
+                        .setEmoji('✅'),
+
+                    new ButtonBuilder()
+                        .setCustomId('company_application_reject')
+                        .setLabel('Відхилити')
+                        .setStyle(ButtonStyle.Danger)
+                        .setEmoji('❌')
+                );
+
+                await reviewChannel.send({
+                    content: `<@&${RANK_9_ROLE_ID}> <@&${RANK_10_ROLE_ID}>`,
+                    embeds: [embed],
+                    components: [buttons]
+                });
+
+                await recordPersonnelAction({
+                    type: 'application_submitted',
+                    targetId: interaction.user.id,
+                    targetName: nickStatic,
+                    oldRank: hasFamilyAccess(interaction.member) ? 'Учасник Hoffman Family' : 'Гість',
+                    newRank: 'На розгляді — Hoffman LTD',
+                    reason: `Рівень: ${gameLevel}; Онлайн: ${dailyOnline}`,
+                    performedBy: interaction.member?.displayName || interaction.user.username,
+                    performedById: interaction.user.id,
+                    source: 'company_application'
+                });
+
+                await updatePersonnelCrmPanel();
+
+                await logAction(
+                    '🏢 Нова заявка до Hoffman LTD',
+                    `👤 Кандидат: <@${interaction.user.id}>\n📝 Nick: **${nickStatic}**\n🎮 Рівень: **${gameLevel}**`,
+                    HOFFMAN_RED
+                );
+
+                return await interaction.editReply({
+                    content: '✅ Заявка до **Hoffman LTD** успішно подана на розгляд.'
                 });
             }
 
