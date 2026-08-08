@@ -9,6 +9,21 @@ function getKyivDayKey() {
     }).format(new Date());
 }
 
+function getKyivDayMonthYear() {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Kyiv',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).formatToParts(new Date());
+
+    return {
+        day: parts.find(part => part.type === 'day').value,
+        month: parts.find(part => part.type === 'month').value,
+        year: parts.find(part => part.type === 'year').value
+    };
+}
+
 function getKyivWeekdayNumber() {
     const { day, month, year } = getKyivDayMonthYear();
     return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).getUTCDay();
@@ -699,6 +714,7 @@ async function resetLotteryTickets(interaction) {
 
         Object.assign(ctx, {
             getKyivDayKey,
+            getKyivDayMonthYear,
             getKyivWeekdayNumber,
             randomPrizeAmount,
             uniqueParticipants,
