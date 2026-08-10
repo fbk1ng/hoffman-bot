@@ -25,7 +25,9 @@ test('shared command classifiers protect restricted command groups', () => {
     assert.equal(ctx.isBankCommand('total_plus'), true);
     assert.equal(ctx.isBankCommand('quests'), false);
     assert.equal(ctx.isQuestCommand('quest_repair'), true);
+    assert.equal(ctx.isQuestCommand('quest_delete'), true);
     assert.equal(ctx.isStaffCommand('quest_add'), true);
+    assert.equal(ctx.isStaffCommand('quest_delete'), true);
     assert.equal(ctx.isFamilyCommand('quest_status'), true);
     assert.equal(ctx.isFamilyCommand('lock_bot'), false);
 });

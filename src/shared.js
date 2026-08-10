@@ -120,11 +120,11 @@ function isBankCommand(commandName) {
 }
 
 function isQuestCommand(commandName) {
-    return ['quests', 'quest_status', 'quest_repair', 'quest_add'].includes(commandName);
+    return ['quests', 'quest_status', 'quest_repair', 'quest_add', 'quest_delete'].includes(commandName);
 }
 
 function isStaffCommand(commandName) {
-    return ['total_plus', 'total_minus', 'report', 'quest_repair', 'quest_add'].includes(commandName);
+    return ['total_plus', 'total_minus', 'report', 'quest_repair', 'quest_add', 'quest_delete'].includes(commandName);
 }
 
 function isFamilyCommand(commandName) {

@@ -79,6 +79,13 @@ const commands = [
             option.setName('cooldown_hours').setDescription('КД у годинах').setRequired(true)
         ),
 
+    new SlashCommandBuilder()
+        .setName('quest_delete')
+        .setDescription('Видалити квест')
+        .addStringOption(option =>
+            option.setName('quest').setDescription('Оберіть квест').setRequired(true).setAutocomplete(true)
+        ),
+
     new SlashCommandBuilder().setName('lock_bot').setDescription('Заблокувати Hoffman Bot'),
     new SlashCommandBuilder().setName('unlock_bot').setDescription('Розблокувати Hoffman Bot')
 ].map(command => command.toJSON());

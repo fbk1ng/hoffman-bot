@@ -3,7 +3,7 @@ module.exports = function registerEvent(ctx) {
 client.on('interactionCreate', async interaction => {
     try {
         if (interaction.isAutocomplete()) {
-            if (interaction.commandName === 'quests' || interaction.commandName === 'quest_repair') {
+            if (interaction.commandName === 'quests' || interaction.commandName === 'quest_repair' || interaction.commandName === 'quest_delete') {
                 return await sendQuestAutocomplete(interaction);
             }
         }
@@ -86,6 +86,10 @@ client.on('interactionCreate', async interaction => {
 
             if (interaction.commandName === 'quest_add') {
                 return await addQuest(interaction);
+            }
+
+            if (interaction.commandName === 'quest_delete') {
+                return await deleteQuest(interaction);
             }
 
             const isPlus = interaction.commandName === 'total_plus';

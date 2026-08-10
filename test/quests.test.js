@@ -11,6 +11,7 @@ function registerQuestsCtx(overrides = {}) {
         dailyStats: [],
         bankOperations: [],
         lotteryAwards: [],
+        logActions: [],
         messageEdits: []
     };
 
@@ -41,7 +42,7 @@ function registerQuestsCtx(overrides = {}) {
         recordBankOperation: async operation => calls.bankOperations.push(operation),
         addLotteryTicketsForQuest: async (participants, questName) => calls.lotteryAwards.push({ participants, questName }),
         updateFinanceCrmPanel: async () => {},
-        logAction: async () => {},
+        logAction: async (...args) => calls.logActions.push(args),
         client: { channels: { fetch: async () => null } },
         __calls: calls,
         ...overrides
@@ -74,6 +75,28 @@ function createQuestInteraction({ customId = 'quest_finish:delivery:starter', us
         },
         reply: async payload => calls.replies.push(payload),
         followUp: async payload => calls.followUps.push(payload),
+        __calls: calls
+    };
+}
+
+function createQuestDeleteInteraction({ quest = 'delivery', userId = 'reviewer' } = {}) {
+    const calls = {
+        replies: [],
+        edits: [],
+        deferred: 0
+    };
+
+    return {
+        options: {
+            getString: name => name === 'quest' ? quest : null
+        },
+        user: { id: userId, username: userId },
+        member: createMember(['rank9']),
+        deferReply: async () => {
+            calls.deferred++;
+        },
+        reply: async payload => calls.replies.push(payload),
+        editReply: async payload => calls.edits.push(payload),
         __calls: calls
     };
 }
@@ -118,4 +141,32 @@ test('completeOrCancelQuest denies users who are neither starter nor reviewer', 
     assert.equal(interaction.__calls.replies.length, 1);
     assert.equal(interaction.__calls.replies[0].flags, ctx.MessageFlags.Ephemeral);
     assert.match(interaction.__calls.replies[0].content, /\S/);
+});
+
+test('deleteQuest removes an available quest definition and state', async () => {
+    const ctx = registerQuestsCtx({
+        questStates: new MemoryCollection([
+            { key: 'delivery', status: 'available', cooldownUntil: null }
+        ])
+    });
+    const interaction = createQuestDeleteInteraction();
+
+    await ctx.deleteQuest(interaction);
+
+    assert.equal(await ctx.questDefinitions.findOne({ key: 'delivery' }), null);
+    assert.equal(await ctx.questStates.findOne({ key: 'delivery' }), null);
+    assert.equal(ctx.__calls.logActions.length, 1);
+    assert.equal(interaction.__calls.deferred, 1);
+    assert.match(interaction.__calls.edits[0].content, /видалено/);
+});
+
+test('deleteQuest refuses to remove a running quest', async () => {
+    const ctx = registerQuestsCtx();
+    const interaction = createQuestDeleteInteraction();
+
+    await ctx.deleteQuest(interaction);
+
+    assert.ok(await ctx.questDefinitions.findOne({ key: 'delivery' }));
+    assert.equal((await ctx.questStates.findOne({ key: 'delivery' })).status, 'running');
+    assert.match(interaction.__calls.edits[0].content, /running/);
 });

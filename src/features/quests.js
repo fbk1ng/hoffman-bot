@@ -738,6 +738,40 @@ async function addQuest(interaction) {
     });
 }
 
+async function deleteQuest(interaction) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const questKey = interaction.options.getString('quest');
+    const quest = await questDefinitions.findOne({ key: questKey });
+
+    if (!quest) {
+        return await interaction.editReply({
+            content: '❌ Цей квест не знайдено в базі.'
+        });
+    }
+
+    const state = await questStates.findOne({ key: quest.key });
+
+    if (['running', 'processing', 'processing_error'].includes(state?.status)) {
+        return await interaction.editReply({
+            content: `⚠️ Квест **${quest.name}** зараз має статус **${state.status}**. Спочатку завершіть, скасуйте або відновіть його через **/quest_repair**, а потім видаліть.`
+        });
+    }
+
+    await questDefinitions.deleteOne({ key: quest.key });
+    await questStates.deleteOne({ key: quest.key });
+
+    await logAction(
+        '🗑️ Квест видалено',
+        `📌 Квест: **${quest.name}**\n💰 Нагорода: **${formatMoney(quest.reward)}**\n🔒 КД: **${quest.cooldownHours} год.**\n👤 Видалив: **${interaction.member?.displayName || interaction.user.username}**`,
+        0xff3333
+    );
+
+    return await interaction.editReply({
+        content: `✅ Квест **${quest.name}** видалено.`
+    });
+}
+
 async function checkQuestCooldowns() {
     if (!QUEST_CHANNEL_ID || !questStates || !questDefinitions) return;
 
@@ -839,6 +873,7 @@ async function sendQuestAutocomplete(interaction) {
             repairQuest,
             sendQuestStatus,
             addQuest,
+            deleteQuest,
             checkQuestCooldowns,
             sendQuestAutocomplete
         });

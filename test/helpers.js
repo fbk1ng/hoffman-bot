@@ -174,6 +174,17 @@ class MemoryCollection {
         return { insertedId };
     }
 
+    async deleteOne(filter) {
+        const index = this.rows.findIndex(row => matchesQuery(row, filter));
+
+        if (index === -1) {
+            return { deletedCount: 0 };
+        }
+
+        this.rows.splice(index, 1);
+        return { deletedCount: 1 };
+    }
+
     async updateOne(filter, update, options = {}) {
         let row = this.rows.find(item => matchesQuery(item, filter));
         const matchedCount = row ? 1 : 0;

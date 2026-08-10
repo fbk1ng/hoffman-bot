@@ -41,7 +41,7 @@ test('daily task difficulty helpers keep rewards and button ids stable', () => {
     assert.equal(ctx.getDifficultyReward('hard'), 3);
     assert.equal(ctx.getDifficultyReward('unknown'), 1);
     assert.equal(ctx.getDailyTaskButtonId('hard'), 'daily_task_submit:hard');
-    assert.match(ctx.getDifficultyLabel('medium'), /medium|РЎРµСЂРµРґРЅ/);
+    assert.match(ctx.getDifficultyLabel('medium'), /medium|Середнє/);
 });
 
 test('getOrCreateDailySettings creates fallback tasks when pool is empty', async () => {
