@@ -94,6 +94,17 @@ test('lottery tickets increment weekly and total counters with history', async (
     assert.deepEqual(row.history.map(item => item.source), ['quest', 'daily']);
 });
 
+test('lottery panel uses the configured weekly draw image', async () => {
+    const ctx = registerLotteryCtx();
+
+    const embed = await ctx.createLotteryPanelEmbed();
+
+    assert.equal(
+        embed.data.image,
+        'https://media.discordapp.net/attachments/1510979053090242711/1536215391565520927/ChatGPT_Image_10_._2026_._06_31_10.png?ex=6a7a9792&is=6a794612&hm=f4e86fcafc85942066747f08104a2176c68b38c50a0b1cfcec707df8b8a9514c&=&format=webp&quality=lossless&width=768&height=645'
+    );
+});
+
 test('pickWeightedWinner respects ticket weighting pool', () => {
     const ctx = registerLotteryCtx();
     const previousRandom = Math.random;
