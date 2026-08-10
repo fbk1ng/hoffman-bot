@@ -169,7 +169,7 @@ async function createLotteryPanelEmbed() {
             `🎟 Квитків у розіграші: **${stats.totalTickets}**\n\n` +
             `⚙️ Перевір свої квитки кнопкою нижче.`
         )
-        .setImage('https://media.discordapp.net/attachments/1510979053090242711/1536215391565520927/ChatGPT_Image_10_._2026_._06_31_10.png?ex=6a7a9792&is=6a794612&hm=f4e86fcafc85942066747f08104a2176c68b38c50a0b1cfcec707df8b8a9514c&=&format=webp&quality=lossless&width=768&height=645')
+        .setImage('https://cdn.discordapp.com/attachments/1510979053090242711/1536215391565520927/ChatGPT_Image_10_._2026_._06_31_10.png')
         .setFooter({ text: 'Hoffman Family • Weekly Lottery' })
         .setTimestamp();
 }
