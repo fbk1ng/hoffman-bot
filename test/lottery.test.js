@@ -22,6 +22,8 @@ function registerLotteryCtx(overrides = {}) {
                 fetch: async () => ({ send: async () => ({ id: 'message-id' }) })
             }
         },
+        LOTTERY_CHANNEL_ID: 'lottery-channel',
+        LOTTERY_CRM_CHANNEL_ID: 'lottery-crm',
         LOTTERY_RESULTS_CHANNEL_ID: 'lottery-results',
         ...overrides
     });
@@ -92,6 +94,50 @@ test('lottery tickets increment weekly and total counters with history', async (
     assert.equal(row.weeklyTickets, 5);
     assert.equal(row.totalTickets, 5);
     assert.deepEqual(row.history.map(item => item.source), ['quest', 'daily']);
+});
+
+test('quest lottery ticket multiplier is active only for the configured week', () => {
+    const ctx = registerLotteryCtx();
+
+    assert.equal(ctx.getQuestLotteryTicketMultiplier('2026-08-09'), 1);
+    assert.equal(ctx.getQuestLotteryTicketMultiplier('2026-08-10'), 3);
+    assert.equal(ctx.getQuestLotteryTicketMultiplier('2026-08-16'), 3);
+    assert.equal(ctx.getQuestLotteryTicketMultiplier('2026-08-17'), 1);
+});
+
+test('quest lottery awards use the current multiplier per participant', async () => {
+    const ctx = registerLotteryCtx();
+    const previousDate = Date;
+    const fixed = new previousDate(Date.UTC(2026, 7, 10, 12, 0));
+
+    class FixedDate extends previousDate {
+        constructor(...args) {
+            super(...(args.length ? args : [fixed.getTime()]));
+        }
+
+        static now() {
+            return fixed.getTime();
+        }
+    }
+
+    try {
+        global.Date = FixedDate;
+
+        const result = await ctx.addLotteryTicketsForQuest([
+            { id: 'u1', mention: '<@u1>', name: 'User One' },
+            { id: 'u2', mention: '<@u2>', name: 'User Two' }
+        ], 'Мисливський сезон');
+
+        const first = await ctx.lotteryTickets.findOne({ userId: 'u1' });
+        const second = await ctx.lotteryTickets.findOne({ userId: 'u2' });
+
+        assert.deepEqual(result, { ticketsPerParticipant: 3, totalTickets: 6 });
+        assert.equal(first.weeklyTickets, 3);
+        assert.equal(second.weeklyTickets, 3);
+        assert.equal(first.history[0].count, 3);
+    } finally {
+        global.Date = previousDate;
+    }
 });
 
 test('lottery panel uses the configured weekly draw image', async () => {

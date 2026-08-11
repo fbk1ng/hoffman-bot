@@ -29,6 +29,18 @@ function getKyivWeekdayNumber() {
     return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).getUTCDay();
 }
 
+const QUEST_TICKET_MULTIPLIER_START_DATE = '2026-08-10';
+const QUEST_TICKET_MULTIPLIER_END_DATE = '2026-08-16';
+const QUEST_TICKET_MULTIPLIER = 3;
+
+function getQuestLotteryTicketMultiplier(dateKey = getKyivDayKey()) {
+    if (dateKey >= QUEST_TICKET_MULTIPLIER_START_DATE && dateKey <= QUEST_TICKET_MULTIPLIER_END_DATE) {
+        return QUEST_TICKET_MULTIPLIER;
+    }
+
+    return 1;
+}
+
 function randomPrizeAmount(min, max, step = 100000) {
     const safeMin = Math.max(0, Number(min) || 0);
     const safeMax = Math.max(safeMin, Number(max) || safeMin);
@@ -127,17 +139,24 @@ async function addLotteryTicket(userId, userName, source, count = 1) {
 }
 
 async function addLotteryTicketsForQuest(participants, questName) {
+    const ticketCount = getQuestLotteryTicketMultiplier();
+
     for (const participant of participants) {
-        await addLotteryTicket(participant.id, participant.name, `Квест: ${questName}`, 1);
+        await addLotteryTicket(participant.id, participant.name, `Квест: ${questName}`, ticketCount);
     }
 
     await logAction(
         '🎟 Видано квитки лотереї',
-        participants.map(p => `${p.mention} — **+1 квиток**`).join('\n') + `\n\n📌 Джерело: **${questName}**`,
+        participants.map(p => `${p.mention} — **+${ticketCount} квит.**`).join('\n') + `\n\n📌 Джерело: **${questName}**`,
         0xd4af37
     );
 
     await updateLotteryPanels();
+
+    return {
+        ticketsPerParticipant: ticketCount,
+        totalTickets: participants.length * ticketCount
+    };
 }
 
 function getLotteryPrizeText(settings) {
@@ -716,6 +735,7 @@ async function resetLotteryTickets(interaction) {
             getKyivDayKey,
             getKyivDayMonthYear,
             getKyivWeekdayNumber,
+            getQuestLotteryTicketMultiplier,
             randomPrizeAmount,
             uniqueParticipants,
             getQuestParticipantsFromInteraction,

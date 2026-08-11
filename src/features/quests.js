@@ -274,6 +274,8 @@ async function completeOrCancelQuest(interaction, completed, forceByAdmin = fals
                 name: state.activeUserName || interaction.member?.displayName || interaction.user.username
             }];
 
+        let awardedLotteryTickets = 0;
+
         if (completed) {
             newBalance = await changeBalance(quest.reward);
             await addDailyStat('plus', quest.reward);
@@ -292,7 +294,8 @@ async function completeOrCancelQuest(interaction, completed, forceByAdmin = fals
                 operationKey: `quest:${key}:${state.startedAt || state.messageId}`
             });
 
-            await addLotteryTicketsForQuest(participants, quest.name);
+            const lotteryAward = await addLotteryTicketsForQuest(participants, quest.name);
+            awardedLotteryTickets = lotteryAward?.totalTickets || participants.length;
             await updateFinanceCrmPanel();
         }
 
@@ -344,7 +347,7 @@ async function completeOrCancelQuest(interaction, completed, forceByAdmin = fals
 
         await logAction(
             completed ? '✅ Квест виконано' : '❌ Квест скасовано',
-            `📌 Квест: **${quest.name}**\n👤 Учасник: <@${state.activeUserId || interaction.user.id}>\n💰 Нараховано: **${completed ? formatMoney(quest.reward) : '$0'}**\n🎟 Квитки: **${completed ? participants.length : 0}**\n🔒 Наступна доступність: **${getKyivDateTime(cooldownUntil)}**`,
+            `📌 Квест: **${quest.name}**\n👤 Учасник: <@${state.activeUserId || interaction.user.id}>\n💰 Нараховано: **${completed ? formatMoney(quest.reward) : '$0'}**\n🎟 Квитки: **${completed ? awardedLotteryTickets : 0}**\n🔒 Наступна доступність: **${getKyivDateTime(cooldownUntil)}**`,
             completed ? 0x00ff88 : 0xff3333
         );
     } catch (error) {
